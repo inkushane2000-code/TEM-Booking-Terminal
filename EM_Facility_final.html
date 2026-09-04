@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EM Facility — Slot Booking</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg>
+      </div>
+      <div>
+        <div class="brand-name">EM Facility</div>
+        <div class="brand-sub">Excellence in Microscopy</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <div class="nav-item active" data-view="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Dashboard</div>
+      <div class="nav-item" data-view="instruments"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M4 12a8 8 0 0116 0M2 12h2M20 12h2"/></svg>Instruments</div>
+      <div class="nav-item" data-view="forms"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3h6l4 4v12a2 2 0 01-2 2H8a2 2 0 01-2-2V5a2 2 0 012-2z"/><path d="M14 3v4h4M9 12h6M9 15.5h6M9 8.5h2"/></svg>User Forms</div>
+      <div class="nav-item" data-view="bookings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M7 10h10M7 14h6"/></svg>My Bookings</div>
+      <div class="nav-item" data-view="guidelines"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V6a2 2 0 012-2h9l5 5v10a2 2 0 01-2 2H6a2 2 0 01-2-2z"/><path d="M9 8h4M9 12h6M9 16h6"/></svg>Guidelines &amp; SOPs</div>
+      <div class="nav-item" data-view="support"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 015 .5c0 1.6-2 1.7-2.3 3.3M12 17h.01"/></svg>Help &amp; Support</div>
+      <div class="nav-item" data-view="operator"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l2.3 4.7L19.5 9l-3.7 3.6.9 5.1-4.7-2.5-4.7 2.5.9-5.1L4.5 9l5.2-1.3L12 3z"/><path d="M12 14v7"/></svg>Operator Console</div>
+    </nav>
+
+    <div class="reg-window">
+      <div class="rw-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Weekend booking window</div>
+      <div class="rw-row"><b>Opens:</b> Friday 12:00 PM</div>
+      <div class="rw-row"><b>Closes:</b> Sunday 11:00 AM</div>
+      <div class="rw-note">During the window, anyone can book an available slot for the upcoming Monday–Friday. Slots are first-come, first-served. Missed slots can be tried again in the next booking window.</div>
+      <div class="rw-countdown" id="windowCountdown" aria-live="polite">
+        <div><b>--</b><span>Hours</span></div><div><b>--</b><span>Minutes</span></div><div><b>--</b><span>Seconds</span></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <div class="topbar">
+      <div class="icon-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
+      <div class="user-chip">
+        <div class="avatar" id="userAvatar">?</div>
+        <div class="user-meta">
+          <div class="user-name" id="userNameChip">Guest</div>
+          <div class="user-role">Researcher</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HERO -->
+    <div id="dashboardView">
+    <div class="hero">
+      <div class="hero-text">
+        <div class="eyebrow">Facility booking portal</div>
+        <h1>Electron Microscopy Facility</h1>
+        <p>Advanced microscopy access for your research. Book operator-assisted sessions on the <b>Talos L120C TEM</b> and <b>Leica UC7 Ultra Microtome</b>.</p>
+        <div class="hero-badges">
+          <span class="hero-badge">48-hour window</span>
+          <span class="hero-badge">First-come booking</span>
+          <span class="hero-badge">Operator-managed access</span>
+        </div>
+      </div>
+      <div class="hero-art">
+        <img class="hero-image" src="assets/talos-l120c.png" alt="Talos L120C transmission electron microscope">
+      </div>
+    </div>
+
+    <!-- SCHEDULE + BOOKING -->
+    <div class="grid-main">
+
+      <div class="panel schedule-panel">
+        <div class="schedule-head">
+          <h2>Upcoming Week Availability</h2>
+          <div class="week-range" id="weekRange">Loading…</div>
+        </div>
+
+        <div class="day-tabs" id="dayTabs"></div>
+
+        <table class="sched-table">
+          <thead>
+            <tr>
+              <th class="timecol"></th>
+              <th>Talos L120C<span class="instr-sub">Transmission Electron Microscope</span></th>
+              <th>Ultra Microtome<span class="instr-sub">Leica UC7</span></th>
+            </tr>
+          </thead>
+          <tbody id="schedBody"></tbody>
+        </table>
+
+        <div class="legend">
+          <div class="legend-item"><span class="legend-dot" style="background:#cdead9"></span>Available</div>
+          <div class="legend-item"><span class="legend-dot" style="background:var(--blue-600)"></span>Booked</div>
+          <div class="legend-item"><span class="legend-dot" style="background:var(--slate-100);border:1px solid var(--line)"></span>Maintenance</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#f6d3d0"></span>Unavailable — operator already booked</div>
+        </div>
+      </div>
+
+      <div class="panel book-panel">
+        <h2>Book a Slot</h2>
+        <div class="window-banner" id="windowBanner"></div>
+        <p class="panel-copy">Enter your details, choose an available slot, and attach the signed User Form. Booking is immediate — there is no approval queue.</p>
+
+        <div class="field">
+          <label for="fUserName">Student / User Name <span class="required">*</span></label>
+          <input type="text" id="fUserName" placeholder="e.g. Ajinkya Ranade" autocomplete="name">
+        </div>
+        <div class="field">
+          <label for="fPiName">PI Name <span class="required">*</span></label>
+          <input type="text" id="fPiName" placeholder="e.g. Prof. Somnath Dutta" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="fPhone">Phone Number <span class="required">*</span></label>
+          <input type="tel" id="fPhone" placeholder="10-digit mobile number" inputmode="tel" autocomplete="tel">
+        </div>
+        <div class="field">
+          <label for="fEmail">Email ID <span class="required">*</span></label>
+          <input type="email" id="fEmail" placeholder="name@institution.ac.in" autocomplete="email">
+        </div>
+        <div class="field">
+          <label for="fInstitution">Institution / Department</label>
+          <input type="text" id="fInstitution" placeholder="e.g. IISc / Division of Biological Sciences">
+        </div>
+        <div class="field">
+          <label for="fSpecimen">Type of Specimen <span class="required">*</span></label>
+          <input type="text" id="fSpecimen" placeholder="e.g. tissue section, purified particles, resin section">
+        </div>
+        <div class="field">
+          <label for="fInstrument">Instrument <span class="required">*</span></label>
+          <div class="select-wrap"><select id="fInstrument"></select></div>
+        </div>
+        <div class="field">
+          <label for="fDate">Date <span class="required">*</span></label>
+          <div class="select-wrap"><select id="fDate"></select></div>
+        </div>
+        <div class="field">
+          <label for="fSlot">Time Slot <span class="required">*</span></label>
+          <div class="select-wrap"><select id="fSlot"></select></div>
+        </div>
+        <div class="field">
+          <label for="fUserForm">Attach Completed User Form <span class="required">*</span></label>
+          <div class="file-drop" id="fileDrop">
+            <input type="file" id="fUserForm" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png">
+            <div class="file-drop-inner" id="fileDropInner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg><span id="fileDropLabel">Choose signed Internal / External user form</span></div>
+          </div>
+          <div class="field-hint">Need the form? <a href="#" id="linkToForms" class="hint-link">Open User Forms</a>.</div>
+        </div>
+        <div class="status-pill" id="statusPill"></div>
+        <button class="btn btn-primary" id="btnBook">Confirm Booking</button>
+        <div class="booking-rule">Booking is immediate and first-come, first-served. Because one operator runs both instruments, <b>only one instrument can be booked per time slot</b>.</div>
+        <div class="quick-links">
+          <h3>Useful Links</h3>
+          <div class="ql-item" data-go="guidelines"><div class="ql-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 4h9l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V5a1 1 0 011-1z"/><path d="M9 12h6M9 16h6"/></svg></div><div class="ql-body"><div class="ql-title">Instrument SOPs &amp; Guidelines</div><div class="ql-sub">Review procedures before your session</div></div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
+          <div class="ql-item" data-go="instruments"><div class="ql-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></div><div class="ql-body"><div class="ql-title">Sample Preparation</div><div class="ql-sub">Check specimen suitability and requirements</div></div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
+          <div class="ql-item" id="qlUserForms"><div class="ql-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3h6l4 4v12a2 2 0 01-2 2H8a2 2 0 01-2-2V5a2 2 0 012-2z"/><path d="M14 3v4h4M9 12h6M9 15.5h6"/></svg></div><div class="ql-body"><div class="ql-title">User Forms</div><div class="ql-sub">Download the signed form required for booking</div></div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+        <div class="attach-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21.4 11.4l-8.5 8.5a5 5 0 01-7.1-7.1l8.5-8.5a3.5 3.5 0 015 5l-8.5 8.5a2 2 0 01-2.8-2.8l7.8-7.8"/></svg><span>Your signed User Form must be attached at booking time. No training is required; all instrument operation is performed by the facility operator.</span></div>
+      </div>
+
+    </div>
+    </div>
+
+    <div id="bookingsView" style="display:none;">
+      <div class="panel forms-hero"><h2>My Bookings</h2><p>Your confirmed sessions are listed here. You can cancel a booking before the session starts. If you miss this week's booking window, simply try again next Sunday.</p></div>
+      <div id="myBookingsList" class="booking-list"></div>
+    </div>
+
+    <div id="operatorView" style="display:none;">
+      <div class="panel forms-hero"><h2>Operator Console</h2><p>Facility-side controls for the single operator managing both instruments. This view is a front-end prototype; protect it with server-side authentication before deployment.</p></div>
+      <div class="operator-grid">
+        <div class="panel operator-card"><h3>Slot Controls</h3><p>Block a slot for maintenance or facility reasons. Blocking a slot does not automatically block the other instrument.</p><div class="field"><label for="opDate">Date</label><input type="date" id="opDate"></div><div class="field"><label for="opSlot">Slot</label><div class="select-wrap"><select id="opSlot"></select></div></div><div class="field"><label for="opInstrument">Instrument</label><div class="select-wrap"><select id="opInstrument"></select></div></div><button class="btn btn-secondary" id="btnMaintenance">Toggle Maintenance</button></div>
+        <div class="panel operator-card"><h3>Current Bookings</h3><button class="btn btn-primary" id="btnAddOperatorBooking">Add Booking</button><div id="operatorBookings" class="operator-bookings"></div><button class="btn btn-secondary" id="btnExport">Export Booking List (CSV)</button></div>
+      </div>
+    </div>
+
+    <div id="instrumentsView" style="display:none;">
+      <div class="panel forms-hero">
+        <h2>Instruments</h2>
+        <p>Two core instruments are available in the EM Facility. The facility operator handles instrument operation; users should arrive with samples and documentation ready for the booked session.</p>
+      </div>
+      <div class="instruments-grid">
+        <div class="instrument-card">
+          <div class="glow-visuals">
+            <div class="instrument-visual"><img class="instrument-photo" src="assets/tedpella-glow-discharge.png" alt="Tedpella glow discharging unit"></div>
+            <div class="instrument-visual"><img class="instrument-photo" src="assets/quorum-glow-discharge.png" alt="Quorum glow discharging unit"></div>
+          </div>
+          <div class="instrument-card-body"><span class="instrument-kicker">Specimen preparation</span><h3>Glow Discharging Units</h3><p>The Tedpella and Quorum glow discharging units treat grids and substrates by modifying surface wettability, helping aqueous specimens spread evenly and adhere reliably before imaging.</p><ul class="instrument-specs"><li>Glow discharge treatment for TEM grids and substrates</li><li>Improves sample spreading and adhesion</li><li>Use the approved facility protocol for treatment settings</li><li>Completed signed User Form required</li></ul></div>
+        </div>
+        <div class="instrument-card"><div class="instrument-visual"><img class="instrument-photo" src="assets/leica-dryer.png" alt="Leica Dryer"></div><div class="instrument-card-body"><span class="instrument-kicker">Grid preparation</span><h3>Leica Dryer</h3><p>The Leica Dryer is used to dry grids after sample application, allowing liquid to evaporate in a controlled way while the specimen settles evenly on the grid.</p><ul class="instrument-specs"><li>Controlled drying of prepared microscopy grids</li><li>Supports consistent specimen deposition</li><li>Confirm drying settings with the facility operator</li></ul></div></div>
+        <div class="instrument-card"><div class="instrument-visual"><img class="instrument-photo talos-photo" src="assets/talos-l120c.png" alt="Talos L120C transmission electron microscope"></div><div class="instrument-card-body"><span class="instrument-kicker">Transmission electron microscopy</span><h3>Talos L120C</h3><p>The Talos L120C is a 120 kV transmission electron microscope for routine imaging, screening, and analytical applications.</p><ul class="instrument-specs"><li>Suitable for routine imaging and sample screening</li><li>Supports analytical microscopy workflows</li><li>Confirm specimen type and required grid/sample format before booking</li></ul></div></div>
+        <div class="instrument-card"><div class="instrument-visual"><img class="instrument-photo" src="assets/leica-glass-maker.png" alt="Leica Glass Maker"></div><div class="instrument-card-body"><span class="instrument-kicker">Knife preparation</span><h3>Leica Glass Maker</h3><p>The Leica Glass Maker heats and shapes glass strips to produce clean, consistent glass knives. These knives are then used for ultrathin sectioning in the ultramicrotome.</p><ul class="instrument-specs"><li>Creates glass knives for ultrathin sectioning</li><li>Supports repeatable knife preparation</li><li>Use approved glass strips and facility procedures</li></ul></div></div>
+        <div class="instrument-card"><div class="instrument-visual leica-visual"><img class="instrument-photo leica-photo" src="assets/leica-uc7.png" alt="Leica UC7 ultramicrotome"></div><div class="instrument-card-body"><span class="instrument-kicker">Precision specimen preparation</span><h3>Leica UC7 Ultramicrotome</h3><p>The Leica UC7 uses a prepared glass or diamond knife to cut resin-embedded specimens into ultrathin sections for TEM analysis.</p><ul class="instrument-specs"><li>Precision sectioning for resin-embedded specimens</li><li>Produces ultrathin sections for TEM analysis</li><li>Resin block and suitable knife must be ready</li></ul></div></div>
+        <div class="instrument-card"><div class="instrument-visual"><img class="instrument-photo" src="assets/quanta-200-sem.png" alt="Quanta 200 SEM"></div><div class="instrument-card-body"><span class="instrument-kicker">Scanning electron microscopy</span><h3>Quanta 200 SEM</h3><p>The Quanta 200 SEM provides high-resolution surface imaging and elemental analysis for biological and material specimens.</p><ul class="instrument-specs"><li>Scanning electron microscopy for surface morphology</li><li>Supports imaging across multiple operating modes</li><li>Confirm specimen mounting and coating requirements</li></ul></div></div>
+      </div>
+    </div>
+
+    <div id="guidelinesView" style="display:none;">
+      <div class="panel forms-hero">
+        <h2>Guidelines &amp; SOPs</h2>
+        <p>Download the facility SOPs relevant to the instruments and follow the operating procedures before booking or using the instruments.</p>
+      </div>
+      <div class="guideline-grid">
+        <div class="guideline-card">
+          <div class="guideline-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 3h7l5 5v13a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z"/><path d="M14 3v5h5M9 12h6M9 16h6"/></svg></div>
+          <h3>Talos L120C SOP</h3>
+          <p>Standard operating procedure for Talos L120C usage, safety checks, sample handling, and reporting workflow.</p>
+          <a class="guideline-link" href="/sop_nstem_updated.pdf" target="_blank" rel="noopener">Download TALOS SOP PDF</a>
+        </div>
+        <div class="guideline-card">
+          <div class="guideline-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 3h7l5 5v13a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z"/><path d="M14 3v5h5M9 12h6M9 16h6"/></svg></div>
+          <h3>Leica UM7 Ultramicrotome SOP</h3>
+          <p>Procedure for ultramicrotome operation, specimen trimming, knife alignment, and maintenance precautions.</p>
+          <a class="guideline-link" href="/sop_ultramicrotome_fullpage.pdf" target="_blank" rel="noopener">Download UM7 SOP PDF</a>
+        </div>
+
+        <div class="guideline-card"><div class="guideline-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg></div><h3>Booking Policy</h3><p>Booking opens Friday at 12:00 PM and closes Sunday at 11:00 AM for the upcoming Monday–Friday. Slots are first-come, first-served. One operator manages the facility, so one instrument booking makes the corresponding time slot unavailable on every other instrument.</p></div>
+        <div class="guideline-card"><div class="guideline-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M3 12h18"/></svg></div><h3>Cancellation &amp; No-show</h3><p>Cancel as early as possible so another user can use the slot. Repeated late cancellation or no-show may be reviewed by the facility. The facility operator may release or reassign slots when operational circumstances require it.</p></div>
+        <div class="guideline-card"><div class="guideline-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div><h3>Booking Requirements</h3><p>Provide student/user name, PI name, phone, email, specimen type, instrument, date, slot, and the signed Internal or External User Form. There is no training requirement because instrument operation is performed by the facility operator.</p></div>      </div>
+    </div>
+
+    <div id="supportView" style="display:none;">
+      <div class="panel forms-hero">
+        <h2>Help &amp; Support</h2>
+        <p>Contact the EM Facility support team for scheduling assistance, specimen preparation, forms, or operational queries.</p>
+      </div>
+      <div class="support-grid">
+        <div class="support-card">
+          <h3>TA Incharge</h3>
+          <div class="support-item"><span class="kicker">Name</span><div class="value">Keerthana H S</div></div>
+          <div class="support-item"><span class="kicker">Mail</span><div class="value"><a href="mailto:keerthana@iisc.ac.in">keerthana@iisc.ac.in</a></div></div>
+          <div class="support-item"><span class="kicker">Phone</span><div class="value">7975911869</div></div>
+        </div>
+        <div class="support-card">
+          <h3>Co-incharge</h3>
+          <div class="support-item"><span class="kicker">Name</span><div class="value">Drose Ignatious Shane</div></div>
+          <div class="support-item"><span class="kicker">Mail</span><div class="value"><a href="mailto:ignatiouss@iisc.ac.in">ignatiouss@iisc.ac.in</a></div></div>
+          <div class="support-item"><span class="kicker">Phone</span><div class="value">7826032427</div></div>
+        </div>
+        <div class="support-card">
+          <h3>Convenor</h3>
+          <div class="support-item"><span class="kicker">Name</span><div class="value">Prof. Somnath Dutta</div></div>
+          <div class="support-item"><span class="kicker">Mail</span><div class="value"><a href="mailto:somnath@iisc.ac.in">somnath@iisc.ac.in</a></div></div>
+          <div class="support-item"><span class="kicker">Phone</span><div class="value">22933453</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- USER FORMS VIEW -->
+    <div id="formsView" style="display:none;">
+      <div class="panel forms-hero">
+        <h2>User Forms</h2>
+        <p>User Booking Requisition Forms issued by the EM Facility, Division of Biological Sciences, IISc Bangalore. Download the form that matches your affiliation, get it signed by your PI, and attach the completed copy on the booking page to confirm your slot.</p>
+      </div>
+      <div class="forms-grid">
+        <div class="form-card">
+          <div class="form-card-icon fc-internal"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6M9 12h.01M15 12h.01M9 9h.01M15 9h.01"/></svg></div>
+          <div class="form-card-body">
+            <div class="form-card-title">Internal User Form</div>
+            <div class="form-card-sub">For students &amp; researchers within IISc</div>
+            <ul class="form-card-list">
+              <li>PI &amp; student/user contact details</li>
+              <li>Debit head / project billing code</li>
+              <li>Specimen type &amp; safety level</li>
+            </ul>
+          </div>
+          <button class="btn btn-primary form-download" data-form="internal">Download Internal Form (PDF)</button>
+        </div>
+        <div class="form-card">
+          <div class="form-card-icon fc-external"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg></div>
+          <div class="form-card-body">
+            <div class="form-card-title">External User Form</div>
+            <div class="form-card-sub">For visiting researchers from other institutions</div>
+            <ul class="form-card-list">
+              <li>Institute name &amp; GST number</li>
+              <li>PI &amp; student/user contact details</li>
+              <li>Specimen type &amp; safety level</li>
+            </ul>
+          </div>
+          <button class="btn btn-primary form-download" data-form="external">Download External Form (PDF)</button>
+        </div>
+      </div>
+      <div class="attach-note forms-note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4M12 17h.01M10.3 3.9L2.6 18a2 2 0 001.7 3h15.4a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>
+        <span>Once filled and signed, go back to the <b>Dashboard</b>, select your slot, and attach the completed form under "Attach Completed User Form" before confirming your booking.</span>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- BOOKING CONFIRMATION -->
+<div class="modal-overlay confirm-modal" id="confirmModal"><div class="modal-box"><div class="modal-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg></div><h3>Booking Confirmed</h3><div class="confirm-details" id="confirmText"></div><p>Your slot is confirmed immediately. Please keep the Booking ID for future reference.</p><div class="modal-actions"><button class="btn btn-primary" id="confirmClose">Done</button></div></div></div>
+
+<!-- ATTACH-FORM REMINDER MODAL -->
+<div class="modal-overlay" id="attachModal">
+  <div class="modal-box">
+    <div class="modal-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21.4 11.4l-8.5 8.5a5 5 0 01-7.1-7.1l8.5-8.5a3.5 3.5 0 015 5l-8.5 8.5a2 2 0 01-2.8-2.8l7.8-7.8"/></svg></div>
+    <h3>Attach your User Form</h3>
+    <p>A signed <b>User Form</b> (Internal or External) is required before the slot can be confirmed. Download the correct form from User Forms, complete it, and attach it here.</p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="modalGoForms">Go to User Forms</button>
+      <button class="btn btn-primary" id="modalOk">Attach now</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 13l4 4L19 7"/></svg><span id="toastMsg">Slot booked</span></div>
+
+<div class="modal-overlay" id="adminLockModal">
+  <div class="modal-box">
+    <div class="modal-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><path d="M7 11V8a5 5 0 0110 0v3M5 11h14v10H5z"/><path d="M12 15v3"/></svg></div>
+    <h3>Operator Console</h3>
+    <p>Enter the administrator password to access facility controls.</p>
+    <div class="field"><label for="adminPassword">Password</label><input type="password" id="adminPassword" autocomplete="current-password"></div>
+    <div class="modal-actions"><button class="btn btn-secondary" id="adminCancel">Cancel</button><button class="btn btn-primary" id="adminUnlock">Unlock</button></div>
+  </div>
+</div>
+<div class="modal-overlay" id="operatorBookingModal">
+    <div class="modal-box">
+      <h3 id="operatorBookingTitle">Add Booking</h3>
+      <div class="field"><label for="opUser">User name</label><input id="opUser" type="text"></div>
+      <div class="field"><label for="opPi">PI name</label><input id="opPi" type="text"></div>
+      <div class="field"><label for="opEmail">Email</label><input id="opEmail" type="email"></div>
+      <div class="field"><label for="opDateEdit">Date</label><input id="opDateEdit" type="date"></div>
+      <div class="field"><label for="opSlotEdit">Time slot</label><select id="opSlotEdit"></select></div>
+      <div class="field"><label for="opInstrumentEdit">Instrument</label><select id="opInstrumentEdit"></select></div>
+      <div class="modal-actions"><button class="btn btn-secondary" id="operatorBookingCancel">Cancel</button><button class="btn btn-primary" id="operatorBookingSave">Save Booking</button></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="script.js"></script>
