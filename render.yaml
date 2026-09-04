@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: tem-booking-page
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    healthCheckPath: /
