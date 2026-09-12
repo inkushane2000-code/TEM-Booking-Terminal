@@ -17,7 +17,8 @@
     {key:'GLASS',name:'Leica Glass Maker',sub:'Precision specimen preparation'},
     {key:'DRYER',name:'Leica Dryer',sub:'Precision specimen preparation'}
   ];
-  const DASHBOARD_INSTRUMENTS=INSTRUMENTS.slice(0,2);
+  const BOOKABLE_INSTRUMENTS=INSTRUMENTS.filter(instr=>instr.key==='TEM'||instr.key==='ULTRA');
+  const DASHBOARD_INSTRUMENTS=BOOKABLE_INSTRUMENTS;
   const STORAGE_KEY='em_facility_bookings_v3';
   const PROFILE_KEY='em_facility_profile_v3';
   const DEMO_BOOKINGS=[];
@@ -90,22 +91,23 @@
     await refreshRemoteBookings();
     subscribeToRemoteBookings();
   }
-  async function createRemoteBooking(f,file){
+  async function createRemoteBookings(f,file){
     if(!remoteReady||!remoteUser)throw new Error('Supabase session is not ready');
-    const remoteId=crypto.randomUUID();
-    const formPath=remoteUser.id+'/'+remoteId+'-'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
+    const registrationId=crypto.randomUUID();
+    const formPath=remoteUser.id+'/'+registrationId+'-'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
     const upload=await supabaseClient.storage.from('signed-forms').upload(formPath,file,{upsert:false});
     if(upload.error)throw upload.error;
-    const {data,error}=await supabaseClient.from('bookings').insert({
-      id:remoteId,user_id:remoteUser.id,user_name:f.user,pi_name:f.pi,phone:f.phone,email:f.email,
+    const rows=f.slots.map(slot=>({
+      id:crypto.randomUUID(),user_id:remoteUser.id,user_name:f.user,pi_name:f.pi,phone:f.phone,email:f.email,
       institution:f.institution||null,specimen:f.specimen,instrument_id:f.instr,session_date:f.date,
-      slot:f.slot,form_path:formPath
-    }).select('booking_code,created_at,id').single();
+      slot,form_path:formPath
+    }));
+    const {data,error}=await supabaseClient.from('bookings').insert(rows).select('booking_code,created_at,id,slot');
     if(error){
       await supabaseClient.storage.from('signed-forms').remove([formPath]);
       throw error;
     }
-    return {id:data.booking_code,remoteId:data.id,formPath,createdAt:data.created_at};
+    return data.map(row=>({id:row.booking_code,remoteId:row.id,slot:row.slot,formPath,createdAt:row.created_at}));
   }
   function fmtRange(){const end=addDays(weekStart,4);return `${weekStart.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})} – ${end.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}`;}
   function selectedDate(){return document.getElementById('fDate').value;}
@@ -113,7 +115,7 @@
     user:document.getElementById('fUserName').value.trim(),pi:document.getElementById('fPiName').value.trim(),
     phone:document.getElementById('fPhone').value.trim(),email:document.getElementById('fEmail').value.trim(),
     institution:document.getElementById('fInstitution').value.trim(),specimen:document.getElementById('fSpecimen').value.trim(),
-    instr:document.getElementById('fInstrument').value,date:selectedDate(),slot:Number(document.getElementById('fSlot').value)
+    instr:document.getElementById('fInstrument').value,date:selectedDate(),slots:[...document.getElementById('fSlot').selectedOptions].map(option=>Number(option.value))
   };}
   function validForm(f){return f.user&&f.pi&&f.phone.replace(/\D/g,'').length>=10&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)&&f.specimen;}
   function isBookingWindowOpen(){return bookingWindow().active;}
@@ -140,24 +142,24 @@
     const body=document.getElementById('schedBody');body.innerHTML='';const d=addDays(weekStart,selectedDayIdx),dISO=iso(d);
     for(let slot=0;slot<SLOT_LABELS.length;slot++){const tr=document.createElement('tr'),time=document.createElement('td');time.className='timecol';time.textContent=SLOT_LABELS[slot].replace(' – ','–');tr.appendChild(time);
       DASHBOARD_INSTRUMENTS.forEach(instr=>{const td=document.createElement('td'),rec=effectiveStatus(instr.key,dISO,slot),[txt,cls]=statusLabel(rec.status),div=document.createElement('div');div.className='slot '+cls;
-        const selected=document.getElementById('fInstrument').value===instr.key&&selectedDate()===dISO&&Number(document.getElementById('fSlot').value)===slot;if(selected)div.classList.add('slot-selected');
+        const selectedSlots=getForm().slots,selected=document.getElementById('fInstrument').value===instr.key&&selectedDate()===dISO&&selectedSlots.includes(slot);if(selected)div.classList.add('slot-selected');
         if(rec.status==='booked')div.innerHTML='<div>Booked</div><div class="stime">'+(rec.user||'Reserved')+'</div>';
         else if(rec.status==='restricted')div.innerHTML='<div>Unavailable</div><div class="stime">'+instrumentName(rec.by)+' booked</div>';
         else if(rec.status==='maintenance')div.innerHTML='<div>Maintenance</div><div class="stime">Facility hold</div>';
         else if(rec.status==='administrative')div.innerHTML='<div>Administrative Break</div><div class="stime">Booking unavailable</div>';
         else div.innerHTML='<div>'+txt+'</div><div class="stime">Open slot</div>';
-        if(rec.status==='available'&&isBookingWindowOpen())div.onclick=()=>{document.getElementById('fInstrument').value=instr.key;document.getElementById('fSlot').value=slot;document.getElementById('fDate').value=dISO;renderAll();};
+        if(rec.status==='available'&&isBookingWindowOpen())div.onclick=()=>{document.getElementById('fInstrument').value=instr.key;document.getElementById('fDate').value=dISO;const slotOption=document.getElementById('fSlot').options[slot];slotOption.selected=!slotOption.selected;renderAll();};
         td.appendChild(div);tr.appendChild(td);});body.appendChild(tr);}
   }
   function renderStatus(){
-    const f=getForm(),rec=effectiveStatus(f.instr,f.date,f.slot),pill=document.getElementById('statusPill'),btn=document.getElementById('btnBook');
+    const f=getForm(),records=f.slots.map(slot=>effectiveStatus(f.instr,f.date,slot)),pill=document.getElementById('statusPill'),btn=document.getElementById('btnBook');
     let html=''; if(!isBookingWindowOpen()){pill.className='status-pill status-maintenance';html='Booking window closed';}
-    else if(rec.status==='available'){pill.className='status-pill status-available';html='Slot available — first-come, first-served';}
-    else if(rec.status==='maintenance'){pill.className='status-pill status-maintenance';html='Slot blocked for maintenance';}
-    else if(rec.status==='administrative'){pill.className='status-pill status-maintenance';html='Administrative break — booking unavailable';}
-    else if(rec.status==='restricted'){pill.className='status-pill status-taken';html=instrumentName(rec.by)+' already booked this slot';}
-    else {pill.className='status-pill status-taken';html='Slot already booked';}
-    pill.innerHTML='<span>'+html+'</span>';btn.disabled=!isBookingWindowOpen()||!validForm(f)||rec.status!=='available';
+    else if(!f.slots.length){pill.className='status-pill status-maintenance';html='Select at least one time slot';}
+    else if(records.every(rec=>rec.status==='available')){pill.className='status-pill status-available';html=`${f.slots.length} slot${f.slots.length===1?'':'s'} available — one registration`;}
+    else if(records.some(rec=>rec.status==='restricted')){pill.className='status-pill status-taken';html='One or more selected slots are unavailable';}
+    else if(records.some(rec=>rec.status==='maintenance'||rec.status==='administrative')){pill.className='status-pill status-maintenance';html='One or more selected slots are unavailable';}
+    else {pill.className='status-pill status-taken';html='One or more selected slots are already booked';}
+    pill.innerHTML='<span>'+html+'</span>';btn.disabled=!isBookingWindowOpen()||!validForm(f)||!f.slots.length||records.some(rec=>rec.status!=='available');
   }
   function renderIdentity(){const p=profile();['fUserName','fPiName','fPhone','fEmail','fInstitution','fSpecimen'].forEach(id=>{const el=document.getElementById(id);if(!el.value&&p[id])el.value=p[id];});const name=document.getElementById('fUserName').value.trim()||'Guest';document.getElementById('userNameChip').textContent=name;document.getElementById('userAvatar').textContent=(name.match(/\b\w/g)||['?']).slice(0,2).join('').toUpperCase();}
   function renderBookings(){
@@ -193,14 +195,15 @@
     const instrumentSelect=document.getElementById('fInstrument');
     const operatorInstrumentSelect=document.getElementById('opInstrument');
     [instrumentSelect,operatorInstrumentSelect,document.getElementById('opInstrumentEdit')].forEach((select,index)=>{
-      const previous=select.value;
-      select.innerHTML=INSTRUMENTS.map(instr=>`<option value="${instr.key}">${instr.name}${index===0?' — '+instr.sub:''}</option>`).join('');
-      if(previous)select.value=previous;
+      const previous=[...select.selectedOptions].map(option=>option.value);
+      const instruments=index===0?BOOKABLE_INSTRUMENTS:INSTRUMENTS;
+      select.innerHTML=instruments.map(instr=>`<option value="${instr.key}">${instr.name}${index===0?' — '+instr.sub:''}</option>`).join('');
+      [...select.options].forEach(option=>{option.selected=previous.includes(option.value);});
     });
     ['fSlot','opSlot','opSlotEdit'].forEach(id=>{
-      const select=document.getElementById(id),previous=select.value;
+      const select=document.getElementById(id),previous=[...select.selectedOptions].map(option=>option.value);
       select.innerHTML=SLOT_LABELS.map((label,index)=>`<option value="${index}">${label}</option>`).join('');
-      if(previous)select.value=previous;
+      [...select.options].forEach(option=>{option.selected=previous.includes(option.value);});
     });
   }
   function renderAll(){weekStart=targetWeek();document.getElementById('weekRange').textContent=fmtRange();renderOptions();renderWindow();renderDayTabs();renderDateOptions();renderSchedule();renderIdentity();renderStatus();}
@@ -238,19 +241,17 @@
   document.getElementById('fDate').addEventListener('change',()=>{const idx=Math.round((new Date(selectedDate())-weekStart)/86400000);if(idx>=0&&idx<WEEK_LEN)selectedDayIdx=idx;renderStatus();renderSchedule();});
 
   document.getElementById('btnBook').onclick=async()=>{
-    const f=getForm();if(!isBookingWindowOpen()){showToast('Booking is open from Friday noon to Sunday 11 AM.');return;}if(!validForm(f)){showToast('Please complete all required booking details.');return;}if(!fileInput.files?.length){pendingBooking=f;showAttachModal();return;}
-    const key=keyFor(f.instr,f.date,f.slot),rec=effectiveStatus(f.instr,f.date,f.slot);if(rec.status!=='available'){showToast('That slot was just taken. Please choose another available slot.');renderAll();return;}
-    const file=fileInput.files[0],localId='EM-'+new Date().getFullYear()+'-'+Math.random().toString(36).slice(2,8).toUpperCase();
+    const f=getForm();if(!isBookingWindowOpen()){showToast('Booking is open from Friday noon to Sunday 11 AM.');return;}if(!validForm(f)||!f.slots.length){showToast('Please select at least one time slot and complete all required booking details.');return;}if(!fileInput.files?.length){pendingBooking=f;showAttachModal();return;}
+    const records=f.slots.map(slot=>effectiveStatus(f.instr,f.date,slot));if(records.some(rec=>rec.status!=='available')){showToast('One or more selected slots were just taken. Please choose available slots.');renderAll();return;}
+    const file=fileInput.files[0];
     const btn=document.getElementById('btnBook');btn.disabled=true;btn.textContent='Saving booking…';
     try{
-      const remote=await createRemoteBooking(f,file),id=remote?.id||localId;
-      state[key]={status:'booked',id,user:f.user,pi:f.pi,phone:f.phone,email:f.email,institution:f.institution,specimen:f.specimen,instr:f.instr,date:f.date,slot:f.slot,form:file.name,createdAt:remote?.createdAt||new Date().toISOString(),remoteId:remote?.remoteId};save();
-      const chosen={...f,id};resetAttachment();pendingBooking=null;renderAll();renderBookings();renderOperator();showConfirmation(chosen);
+      const remote=await createRemoteBookings(f,file),bookings=f.slots.map(slot=>{const result=remote.find(row=>row.slot===slot),id=result?.id||'EM-'+new Date().getFullYear()+'-'+Math.random().toString(36).slice(2,8).toUpperCase();state[keyFor(f.instr,f.date,slot)]={status:'booked',id,user:f.user,pi:f.pi,phone:f.phone,email:f.email,institution:f.institution,specimen:f.specimen,instr:f.instr,date:f.date,slot,form:file.name,createdAt:result?.createdAt||new Date().toISOString(),remoteId:result?.remoteId};return {...f,id,slot};});save();resetAttachment();pendingBooking=null;renderAll();renderBookings();renderOperator();showConfirmation(bookings);
     }catch(error){console.error('Supabase booking failed',error);showToast(error.message||'Booking could not be saved. Please try again.');}
     finally{btn.textContent='Confirm Booking';renderStatus();}
   };
 
-  function showConfirmation(f){document.getElementById('confirmText').innerHTML=`<b>${f.id}</b><br>${instrumentName(f.instr)}<br>${new Date(f.date+'T00:00:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}<br>${SLOT_LABELS[f.slot]}<br><br><b>PI:</b> ${f.pi}<br><b>User:</b> ${f.user}`;document.getElementById('confirmModal').classList.add('show');}
+  function showConfirmation(bookings){const first=bookings[0];document.getElementById('confirmText').innerHTML=`<b>${bookings.length} slot${bookings.length===1?'':'s'} confirmed</b><br>${instrumentName(first.instr)}<br>${new Date(first.date+'T00:00:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}<br><br>${bookings.map(booking=>`${SLOT_LABELS[booking.slot]} — <span class="mono">${booking.id}</span>`).join('<br>')}<br><br><b>PI:</b> ${first.pi}<br><b>User:</b> ${first.user}`;document.getElementById('confirmModal').classList.add('show');}
   document.getElementById('confirmClose').onclick=()=>document.getElementById('confirmModal').classList.remove('show');
 
   document.querySelectorAll('.nav-item').forEach(i=>i.addEventListener('click',()=>{const v=i.dataset.view;if(v)switchView(v);}));

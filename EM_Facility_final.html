@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
 
@@ -146,8 +146,9 @@
           <div class="select-wrap"><select id="fDate"></select></div>
         </div>
         <div class="field">
-          <label for="fSlot">Time Slot <span class="required">*</span></label>
-          <div class="select-wrap"><select id="fSlot"></select></div>
+          <label for="fSlot">Time Slots <span class="required">*</span></label>
+          <div class="select-wrap"><select id="fSlot" multiple size="6"></select></div>
+          <div class="field-hint">Select one or more slots for this date. Use a new registration for another day.</div>
         </div>
         <div class="field">
           <label for="fUserForm">Attach Completed User Form <span class="required">*</span></label>
@@ -301,7 +302,7 @@
 </div>
 
 <!-- BOOKING CONFIRMATION -->
-<div class="modal-overlay confirm-modal" id="confirmModal"><div class="modal-box"><div class="modal-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg></div><h3>Booking Confirmed</h3><div class="confirm-details" id="confirmText"></div><p>Your slot is confirmed immediately. Please keep the Booking ID for future reference.</p><div class="modal-actions"><button class="btn btn-primary" id="confirmClose">Done</button></div></div></div>
+<div class="modal-overlay confirm-modal" id="confirmModal"><div class="modal-box"><div class="modal-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg></div><h3>Booking Confirmed</h3><div class="confirm-details" id="confirmText"></div><p>Your selected slots are confirmed immediately. Please keep the Booking IDs for future reference.</p><div class="modal-actions"><button class="btn btn-primary" id="confirmClose">Done</button></div></div></div>
 
 <!-- ATTACH-FORM REMINDER MODAL -->
 <div class="modal-overlay" id="attachModal">
@@ -341,4 +342,4 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="script.js"></script>
+<script src="script.js?v=3"></script>
