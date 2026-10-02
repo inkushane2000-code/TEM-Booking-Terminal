@@ -1,10 +1,13 @@
 (function(){
-  const SUPABASE_URL='https://nainuxalbgciowlftfyf.supabase.co';
-  const SUPABASE_PUBLISHABLE_KEY='sb_publishable_sZE0IAQ7X1RS9hL_-NDBkQ_-NSCddEU';
+  const SUPABASE_URL='https://feyaopefxbyhglbkqsch.supabase.co';
+  const SUPABASE_PUBLISHABLE_KEY='sb_publishable_uUmsgX_dU7t2iZx8xAcv2Q_LmauaxOI';
   const supabaseClient=window.supabase?.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
   let remoteUser=null;
   let remoteReady=false;
   let remoteChannel=null;
+  let remoteConnectionPromise=null;
+  let remoteRetryTimer=null;
+  let remoteRetryAttempt=0;
   const DAY_NAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const SLOT_LABELS=['9:30 AM – 10:30 AM','10:30 AM – 11:30 AM','11:30 AM – 12:30 PM','2:00 PM – 3:00 PM','3:00 PM – 4:00 PM','4:00 PM – 5:00 PM'];
   const WEEK_LEN=5;
@@ -83,13 +86,70 @@
       .subscribe();
   }
   async function initializeRemote(){
-    if(!supabaseClient)return;
-    const {data,error}=await supabaseClient.auth.signInAnonymously();
-    if(error)throw error;
-    remoteUser=data.user;
+    if(!supabaseClient)throw new Error('Supabase client library did not load');
+    const {data:{session},error:sessionError}=await supabaseClient.auth.getSession();
+    if(sessionError)throw sessionError;
+    if(session?.user)remoteUser=session.user;
+    else{
+      const {data,error}=await supabaseClient.auth.signInAnonymously();
+      if(error)throw error;
+      remoteUser=data.user;
+    }
     remoteReady=true;
     await refreshRemoteBookings();
+    if(remoteChannel)await supabaseClient.removeChannel(remoteChannel);
     subscribeToRemoteBookings();
+  }
+  function setBookingServiceStatus(message,state){
+    const status=document.getElementById('bookingServiceStatus');
+    status.textContent=message;
+    status.className='booking-service-status'+(state==='connected'?' connected':state==='error'?' error':'');
+    document.getElementById('bookingServiceRetry').hidden=state!=='error';
+  }
+  function scheduleRemoteRetry(error){
+    remoteReady=false;
+    remoteUser=null;
+    console.error('Supabase connection failed; retrying automatically.',error);
+    const statusCode=Number(error?.status);
+    const anonymousSignInDisabled=error?.message==='Anonymous sign-ins are disabled';
+    const missingBookingSchema=error?.code==='PGRST205'&&/public\.bookings/.test(error?.message||'');
+    const setupError=anonymousSignInDisabled||missingBookingSchema||(statusCode>=400&&statusCode<500&&statusCode!==408&&statusCode!==429);
+    const message=anonymousSignInDisabled
+      ?'Enable Anonymous Sign-Ins in Supabase Dashboard → Authentication → Providers, then retry the connection.'
+      :missingBookingSchema
+        ?'The booking tables are missing. Run supabase/schema.sql in the Supabase SQL Editor, then retry the connection.'
+      :setupError
+        ?`Supabase setup error: ${error?.message||'check the project URL, key, and database schema.'} Fix the setting, then retry the connection.`
+        :'Booking service is unavailable. Check that the Supabase project is active and reconnecting automatically.';
+    setBookingServiceStatus(message,'error');
+    renderStatus();
+    if(setupError)return;
+    if(remoteRetryTimer)return;
+    const delay=Math.min(1000*2**remoteRetryAttempt,30000);
+    remoteRetryAttempt=Math.min(remoteRetryAttempt+1,5);
+    remoteRetryTimer=setTimeout(()=>{
+      remoteRetryTimer=null;
+      void connectRemote();
+    },delay);
+  }
+  function connectRemote(){
+    if(remoteConnectionPromise)return remoteConnectionPromise;
+    setBookingServiceStatus('Connecting securely to the booking service…','connecting');
+    remoteConnectionPromise=(async()=>{
+      try{
+        await initializeRemote();
+        remoteRetryAttempt=0;
+        if(remoteRetryTimer){clearTimeout(remoteRetryTimer);remoteRetryTimer=null;}
+        setBookingServiceStatus('Booking service connected. Your booking will be saved securely.','connected');
+        renderAll();
+        renderOperator();
+      }catch(error){
+        scheduleRemoteRetry(error);
+      }finally{
+        remoteConnectionPromise=null;
+      }
+    })();
+    return remoteConnectionPromise;
   }
   async function createRemoteBookings(f,file){
     if(!remoteReady||!remoteUser)throw new Error('Supabase session is not ready');
@@ -159,7 +219,7 @@
     else if(records.some(rec=>rec.status==='restricted')){pill.className='status-pill status-taken';html='One or more selected slots are unavailable';}
     else if(records.some(rec=>rec.status==='maintenance'||rec.status==='administrative')){pill.className='status-pill status-maintenance';html='One or more selected slots are unavailable';}
     else {pill.className='status-pill status-taken';html='One or more selected slots are already booked';}
-    pill.innerHTML='<span>'+html+'</span>';btn.disabled=!isBookingWindowOpen()||!validForm(f)||!f.slots.length||records.some(rec=>rec.status!=='available');
+    pill.innerHTML='<span>'+html+'</span>';btn.disabled=!remoteReady||!isBookingWindowOpen()||!validForm(f)||!f.slots.length||records.some(rec=>rec.status!=='available');
   }
   function renderIdentity(){const p=profile();['fUserName','fPiName','fPhone','fEmail','fInstitution','fSpecimen'].forEach(id=>{const el=document.getElementById(id);if(!el.value&&p[id])el.value=p[id];});const name=document.getElementById('fUserName').value.trim()||'Guest';document.getElementById('userNameChip').textContent=name;document.getElementById('userAvatar').textContent=(name.match(/\b\w/g)||['?']).slice(0,2).join('').toUpperCase();}
   function renderBookings(){
@@ -247,7 +307,13 @@
     const btn=document.getElementById('btnBook');btn.disabled=true;btn.textContent='Saving booking…';
     try{
       const remote=await createRemoteBookings(f,file),bookings=f.slots.map(slot=>{const result=remote.find(row=>row.slot===slot),id=result?.id||'EM-'+new Date().getFullYear()+'-'+Math.random().toString(36).slice(2,8).toUpperCase();state[keyFor(f.instr,f.date,slot)]={status:'booked',id,user:f.user,pi:f.pi,phone:f.phone,email:f.email,institution:f.institution,specimen:f.specimen,instr:f.instr,date:f.date,slot,form:file.name,createdAt:result?.createdAt||new Date().toISOString(),remoteId:result?.remoteId};return {...f,id,slot};});save();resetAttachment();pendingBooking=null;renderAll();renderBookings();renderOperator();showConfirmation(bookings);
-    }catch(error){console.error('Supabase booking failed',error);showToast(error.message||'Booking could not be saved. Please try again.');}
+    }catch(error){
+      console.error('Supabase booking failed',error);
+      if(!navigator.onLine||error instanceof TypeError||Number(error?.status)>=500){
+        scheduleRemoteRetry(error);
+      }
+      showToast(error.message||'Booking could not be saved. Please try again.');
+    }
     finally{btn.textContent='Confirm Booking';renderStatus();}
   };
 
@@ -290,7 +356,26 @@
   document.getElementById('opDate').value=iso(weekStart);
   document.getElementById('btnExport').onclick=()=>{const rows=[['Booking ID','Date','Slot','Instrument','User','PI','Phone','Email','Institution','Specimen','Form','Created At']];Object.values(state).filter(r=>r.status==='booked').forEach(r=>rows.push([r.id,r.date,SLOT_LABELS[r.slot],instrumentName(r.instr),r.user,r.pi,r.phone,r.email,r.institution,r.specimen,r.form,r.createdAt]));const csv=rows.map(row=>row.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='EM_Facility_Bookings.csv';a.click();URL.revokeObjectURL(url);};
 
+  document.getElementById('bookingServiceRetry').onclick=()=>{
+    remoteRetryAttempt=0;
+    if(remoteRetryTimer){clearTimeout(remoteRetryTimer);remoteRetryTimer=null;}
+    void connectRemote();
+  };
   renderAll();renderOperator();setInterval(()=>renderCountdown(bookingWindow()),1000);
-  initializeRemote().then(()=>{renderAll();renderOperator();}).catch(error=>{console.error('Supabase connection failed; using local preview mode.',error);});
-  setInterval(()=>refreshRemoteBookings().catch(error=>console.error('Booking polling failed',error)),15000);
+  void connectRemote();
+  window.addEventListener('online',()=>{
+    remoteRetryAttempt=0;
+    if(remoteRetryTimer){clearTimeout(remoteRetryTimer);remoteRetryTimer=null;}
+    void connectRemote();
+  });
+  window.addEventListener('offline',()=>{
+    remoteReady=false;
+    remoteUser=null;
+    setBookingServiceStatus('Internet connection lost. Booking will resume automatically when you are back online.','error');
+    renderStatus();
+    if(remoteRetryTimer){clearTimeout(remoteRetryTimer);remoteRetryTimer=null;}
+  });
+  setInterval(()=>{
+    if(remoteReady)refreshRemoteBookings().catch(scheduleRemoteRetry);
+  },15000);
 })();

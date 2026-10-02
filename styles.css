@@ -412,6 +412,11 @@
   .status-available{background:var(--green-050);color:var(--green-600);}
   .status-taken{background:#fdeceb;color:#c23b34;}
   .status-maintenance{background:var(--slate-100);color:var(--muted-2);}
+  .booking-service-status{font-size:12px;line-height:1.5;color:var(--muted-2);margin:-6px 0 12px;}
+  .booking-service-status.connected{color:var(--green-600);}
+  .booking-service-status.error{color:#c23b34;}
+  .booking-service-retry{border:0;background:none;color:var(--blue-600);font:600 12px 'Inter',sans-serif;padding:0;margin:-7px 0 12px;cursor:pointer;}
+  .booking-service-retry[hidden]{display:none;}
 
   .btn{
     width:100%; padding:12px; border-radius:10px; font-size:14px; font-weight:700;
@@ -506,7 +511,7 @@
     .topbar{margin-bottom:18px;}
     .grid-main{grid-template-columns:1fr;}
     .book-panel{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px;}
-    .book-panel h2,.book-panel .window-banner,.book-panel .panel-copy,.book-panel .status-pill,.book-panel .btn,.book-panel .booking-rule,.book-panel .quick-links,.book-panel .attach-note{grid-column:1 / -1;}
+    .book-panel h2,.book-panel .window-banner,.book-panel .panel-copy,.book-panel .status-pill,.book-panel .booking-service-status,.book-panel .booking-service-retry,.book-panel .btn,.book-panel .booking-rule,.book-panel .quick-links,.book-panel .attach-note{grid-column:1 / -1;}
     .quick-links{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;}
     .quick-links h3{grid-column:1 / -1;}
     .ql-item{margin-bottom:0;}
@@ -656,4 +661,3 @@
   @media (prefers-reduced-motion:reduce){
     *,*::before,*::after{scroll-behavior:auto!important;transition-duration:0.01ms!important;animation-duration:0.01ms!important;}
   }
-
