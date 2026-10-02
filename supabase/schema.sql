@@ -134,7 +134,7 @@ drop policy if exists "Users can create their own bookings" on public.bookings;
 create policy "Users can create their own bookings"
   on public.bookings for insert
   to authenticated
-  with check (user_id = auth.uid() and status = 'confirmed');
+  with check (user_id = auth.uid() and status = 'confirmed' and slot <> 0);
 
 drop policy if exists "Users can cancel their own bookings" on public.bookings;
 create policy "Users can cancel their own bookings"

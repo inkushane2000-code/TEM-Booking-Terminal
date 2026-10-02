@@ -54,6 +54,7 @@
   function effectiveStatus(instr,dateISO,slot){
     const own=state[keyFor(instr,dateISO,slot)];
     if(own?.status==='maintenance'||own?.status==='booked') return own;
+    if(slot===0)return {status:'reserved'};
     const date=new Date(dateISO+'T00:00:00');
     if((date.getDay()===3||date.getDay()===5)&&slot===4)return {status:'administrative'};
     const other=INSTRUMENTS.find(x=>x.key!==instr&&state[keyFor(x.key,dateISO,slot)]?.status==='booked');
@@ -179,7 +180,7 @@
   };}
   function validForm(f){return f.user&&f.pi&&f.phone.replace(/\D/g,'').length>=10&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)&&f.specimen;}
   function isBookingWindowOpen(){return bookingWindow().active;}
-  function statusLabel(s){return {available:['Available','slot-available'],booked:['Booked','slot-booked'],mine:['My Booking','slot-mine'],maintenance:['Maintenance','slot-maintenance'],administrative:['Administrative Break','slot-administrative'],restricted:['Unavailable','slot-restricted']}[s]||['Unavailable','slot-restricted'];}
+  function statusLabel(s){return {available:['Available','slot-available'],booked:['Booked','slot-booked'],mine:['My Booking','slot-mine'],maintenance:['Maintenance','slot-maintenance'],administrative:['Administrative Break','slot-administrative'],restricted:['Unavailable','slot-restricted'],reserved:['Reserved','slot-reserved']}[s]||['Unavailable','slot-restricted'];}
 
   function renderWindow(){
     const b=bookingWindow(), el=document.getElementById('windowBanner');
@@ -204,6 +205,7 @@
       DASHBOARD_INSTRUMENTS.forEach(instr=>{const td=document.createElement('td'),rec=effectiveStatus(instr.key,dISO,slot),[txt,cls]=statusLabel(rec.status),div=document.createElement('div');div.className='slot '+cls;
         const selectedSlots=getForm().slots,selected=document.getElementById('fInstrument').value===instr.key&&selectedDate()===dISO&&selectedSlots.includes(slot);if(selected)div.classList.add('slot-selected');
         if(rec.status==='booked')div.innerHTML='<div>Booked</div><div class="stime">'+(rec.user||'Reserved')+'</div>';
+        else if(rec.status==='reserved')div.innerHTML='<div>Reserved</div><div class="stime">Admin booking only</div>';
         else if(rec.status==='restricted')div.innerHTML='<div>Unavailable</div><div class="stime">'+instrumentName(rec.by)+' booked</div>';
         else if(rec.status==='maintenance')div.innerHTML='<div>Maintenance</div><div class="stime">Facility hold</div>';
         else if(rec.status==='administrative')div.innerHTML='<div>Administrative Break</div><div class="stime">Booking unavailable</div>';
@@ -216,6 +218,7 @@
     let html=''; if(!isBookingWindowOpen()){pill.className='status-pill status-maintenance';html='Booking window closed';}
     else if(!f.slots.length){pill.className='status-pill status-maintenance';html='Select at least one time slot';}
     else if(records.every(rec=>rec.status==='available')){pill.className='status-pill status-available';html=`${f.slots.length} slot${f.slots.length===1?'':'s'} available — one registration`;}
+    else if(records.some(rec=>rec.status==='reserved')){pill.className='status-pill status-maintenance';html='9:30–10:30 AM is reserved for superuser bookings by an administrator';}
     else if(records.some(rec=>rec.status==='restricted')){pill.className='status-pill status-taken';html='One or more selected slots are unavailable';}
     else if(records.some(rec=>rec.status==='maintenance'||rec.status==='administrative')){pill.className='status-pill status-maintenance';html='One or more selected slots are unavailable';}
     else {pill.className='status-pill status-taken';html='One or more selected slots are already booked';}
