@@ -269,7 +269,7 @@
   .slot-mine{background:var(--blue-600);color:#fff;cursor:default;}
   .slot-maintenance{background:var(--slate-100);color:var(--muted-2);cursor:not-allowed;border-color:var(--line);}
   .slot-administrative{background:#f3edf9;color:#76519a;cursor:not-allowed;border-color:#dfd0ef;}
-  .slot-reserved{background:#edf1fb;color:#4f5e88;cursor:not-allowed;border-color:#d5dcef;}
+  .slot-reserved{background:#f1e8ff;color:#6c3bb5;cursor:not-allowed;border-color:#d7c2f5;}
   .slot-restricted{background:#fdeceb;color:#c23b34;cursor:not-allowed;border-color:#f6d3d0;}
   .slot-restricted:hover{transform:none;box-shadow:none;}
   .slot-selected{outline:2px solid #1c2b7a;outline-offset:1px;}

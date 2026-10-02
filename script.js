@@ -205,7 +205,7 @@
       DASHBOARD_INSTRUMENTS.forEach(instr=>{const td=document.createElement('td'),rec=effectiveStatus(instr.key,dISO,slot),[txt,cls]=statusLabel(rec.status),div=document.createElement('div');div.className='slot '+cls;
         const selectedSlots=getForm().slots,selected=document.getElementById('fInstrument').value===instr.key&&selectedDate()===dISO&&selectedSlots.includes(slot);if(selected)div.classList.add('slot-selected');
         if(rec.status==='booked')div.innerHTML='<div>Booked</div><div class="stime">'+(rec.user||'Reserved')+'</div>';
-        else if(rec.status==='reserved')div.innerHTML='<div>Reserved</div><div class="stime">Admin booking only</div>';
+        else if(rec.status==='reserved')div.innerHTML='<div>Reserved for Super Users</div>';
         else if(rec.status==='restricted')div.innerHTML='<div>Unavailable</div><div class="stime">'+instrumentName(rec.by)+' booked</div>';
         else if(rec.status==='maintenance')div.innerHTML='<div>Maintenance</div><div class="stime">Facility hold</div>';
         else if(rec.status==='administrative')div.innerHTML='<div>Administrative Break</div><div class="stime">Booking unavailable</div>';
@@ -218,7 +218,7 @@
     let html=''; if(!isBookingWindowOpen()){pill.className='status-pill status-maintenance';html='Booking window closed';}
     else if(!f.slots.length){pill.className='status-pill status-maintenance';html='Select at least one time slot';}
     else if(records.every(rec=>rec.status==='available')){pill.className='status-pill status-available';html=`${f.slots.length} slot${f.slots.length===1?'':'s'} available — one registration`;}
-    else if(records.some(rec=>rec.status==='reserved')){pill.className='status-pill status-maintenance';html='9:30–10:30 AM is reserved for superuser bookings by an administrator';}
+    else if(records.some(rec=>rec.status==='reserved')){pill.className='status-pill status-maintenance';html='9:30–10:30 AM is reserved for Super Users';}
     else if(records.some(rec=>rec.status==='restricted')){pill.className='status-pill status-taken';html='One or more selected slots are unavailable';}
     else if(records.some(rec=>rec.status==='maintenance'||rec.status==='administrative')){pill.className='status-pill status-maintenance';html='One or more selected slots are unavailable';}
     else {pill.className='status-pill status-taken';html='One or more selected slots are already booked';}
