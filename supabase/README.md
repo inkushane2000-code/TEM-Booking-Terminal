@@ -35,4 +35,4 @@ supabase functions deploy admin-booking
 supabase secrets set ADMIN_PASSWORD='EM_GC-04'
 ```
 
-The function uses `SUPABASE_SERVICE_ROLE_KEY` server-side for operator Add/Edit/Delete actions. Never place that key in the HTML or expose it to users.
+The function uses `SUPABASE_SERVICE_ROLE_KEY` server-side for operator Add/Edit/Delete actions and creates short-lived signed download links for users' private booking forms. Redeploy `admin-booking` after changing its code. Never place the service-role key in the HTML or expose it to users.
