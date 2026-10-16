@@ -9,6 +9,22 @@ Deno.serve(async (request) => {
   const { action, password, booking } = await request.json();
   if (password !== Deno.env.get("ADMIN_PASSWORD")) return json({ error: "Unauthorized" }, 401);
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  if (action === "download-form") {
+    if (!booking?.id) return json({ error: "Booking ID is required" }, 400);
+    const { data: record, error: bookingError } = await admin
+      .from("bookings")
+      .select("form_path")
+      .eq("id", booking.id)
+      .eq("status", "confirmed")
+      .maybeSingle();
+    if (bookingError) return json({ error: bookingError.message }, 400);
+    if (!record || record.form_path === "operator-entry") return json({ error: "No uploaded form is available for this booking" }, 404);
+    const { data, error } = await admin.storage
+      .from("signed-forms")
+      .createSignedUrl(record.form_path, 60, { download: true });
+    if (error) return json({ error: error.message }, 400);
+    return json({ signedUrl: data.signedUrl });
+  }
   if (action === "delete") {
     const { error } = await admin.from("bookings").update({ status: "cancelled", cancelled_at: new Date().toISOString() }).eq("id", booking.id);
     if (error) return json({ error: error.message }, 400);
