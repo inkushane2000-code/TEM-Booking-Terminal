@@ -56,8 +56,10 @@
   function otherInstrument(k){return INSTRUMENTS.find(x=>x.key!==k)?.key||k;}
   function instrumentName(k){return INSTRUMENTS.find(x=>x.key===k)?.name||k;}
   function effectiveStatus(instr,dateISO,slot){
+    const maintenance=Object.values(state).find(r=>r.status==='maintenance'&&r.date===dateISO&&r.slot===slot);
+    if(maintenance)return maintenance;
     const own=state[keyFor(instr,dateISO,slot)];
-    if(own?.status==='maintenance'||own?.status==='booked') return own;
+    if(own?.status==='booked') return own;
     if(slot===0)return {status:'reserved'};
     const date=new Date(dateISO+'T00:00:00');
     if((date.getDay()===3||date.getDay()===5)&&slot===4)return {status:'administrative'};
@@ -76,11 +78,25 @@
     rows.forEach(r=>{state[keyFor(r.instrument_id,r.session_date,r.slot)]={status:'booked',id:r.booking_code,user:r.user_name,pi:r.pi_name,phone:r.phone,email:r.email,institution:r.institution,specimen:r.specimen,instr:r.instrument_id,date:r.session_date,slot:r.slot,form:r.form_path.split('/').pop(),formPath:r.form_path,createdAt:r.created_at,remoteId:r.id};});
     save();
   }
+  function applyRemoteMaintenance(rows){
+    Object.keys(state).forEach(key=>{if(state[key].status==='maintenance')delete state[key];});
+    rows.forEach(row=>{
+      state[keyFor(row.instrument_id,row.session_date,row.slot)]={
+        status:'maintenance',instr:row.instrument_id,date:row.session_date,slot:row.slot
+      };
+    });
+    save();
+  }
   async function refreshRemoteBookings(){
     if(!supabaseClient||!remoteReady)return;
-    const {data:rows,error}=await supabaseClient.from('bookings').select('*').eq('status','confirmed');
-    if(error)throw error;
+    const [{data:rows,error:bookingError},{data:maintenanceRows,error:maintenanceError}]=await Promise.all([
+      supabaseClient.from('bookings').select('*').eq('status','confirmed'),
+      supabaseClient.from('maintenance_slots').select('instrument_id,session_date,slot')
+    ]);
+    if(bookingError)throw bookingError;
+    if(maintenanceError)throw maintenanceError;
     applyRemoteRows(rows||[]);
+    applyRemoteMaintenance(maintenanceRows||[]);
     renderAll();
     renderBookings();
     renderOperator();
@@ -88,6 +104,7 @@
   function subscribeToRemoteBookings(){
     remoteChannel=supabaseClient.channel('public-bookings')
       .on('postgres_changes',{event:'*',schema:'public',table:'bookings'},()=>refreshRemoteBookings().catch(error=>console.error('Booking refresh failed',error)))
+      .on('postgres_changes',{event:'*',schema:'public',table:'maintenance_slots'},()=>refreshRemoteBookings().catch(error=>console.error('Maintenance refresh failed',error)))
       .subscribe();
   }
   async function initializeRemote(){
@@ -415,7 +432,19 @@
   attachModal.onclick=e=>{if(e.target===attachModal)hideAttachModal();};
 
   // Operator controls
-  document.getElementById('btnMaintenance').onclick=()=>{const d=document.getElementById('opDate').value,s=Number(document.getElementById('opSlot').value),i=document.getElementById('opInstrument').value,k=keyFor(i,d,s),r=state[k];if(r?.status==='booked'){showToast('A booked slot cannot be blocked. Cancel/release it first.');return;}if(r?.status==='maintenance')delete state[k];else state[k]={status:'maintenance'};save();showToast(state[k]?'Slot marked for maintenance':'Maintenance block removed');renderAll();renderOperator();};
+  document.getElementById('btnMaintenance').onclick=async()=>{
+    const date=document.getElementById('opDate').value,slot=Number(document.getElementById('opSlot').value),instrumentId=document.getElementById('opInstrument').value;
+    if(!remoteReady||!remoteUser){showToast('Booking service is not connected. Maintenance changes cannot be saved.');return;}
+    const enabled=!Object.values(state).some(r=>r.status==='maintenance'&&r.date===date&&r.slot===slot);
+    try{
+      await adminBookingRequest('maintenance-set',{instrument_id:instrumentId,session_date:date,slot,enabled,created_by:remoteUser.id});
+      await refreshRemoteBookings();
+      showToast(enabled?'Slot marked for maintenance':'Maintenance block removed');
+    }catch(error){
+      console.error('Maintenance update failed',error);
+      showToast(error.message||'Maintenance change could not be saved.');
+    }
+  };
   document.getElementById('opDate').value=iso(weekStart);
   document.getElementById('btnExport').onclick=()=>{const rows=[['Booking ID','Date','Slot','Instrument','User','PI','Phone','Email','Institution','Specimen','Form','Created At']];Object.values(state).filter(r=>r.status==='booked').forEach(r=>rows.push([r.id,r.date,SLOT_LABELS[r.slot],instrumentName(r.instr),r.user,r.pi,r.phone,r.email,r.institution,r.specimen,r.form,r.createdAt]));const csv=rows.map(row=>row.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='EM_Facility_Bookings.csv';a.click();URL.revokeObjectURL(url);};
 

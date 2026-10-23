@@ -71,6 +71,61 @@ create table if not exists public.maintenance_slots (
   unique (instrument_id, session_date, slot)
 );
 
+create or replace function public.prevent_booking_during_maintenance()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.status = 'confirmed' then
+    perform pg_advisory_xact_lock(hashtextextended(new.session_date::text || ':' || new.slot::text, 0));
+    if exists (
+      select 1 from public.maintenance_slots
+      where session_date = new.session_date and slot = new.slot
+    ) then
+      raise exception 'This slot is blocked for maintenance.'
+        using errcode = '23505';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.prevent_maintenance_during_booking()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'UPDATE' then
+    perform pg_advisory_xact_lock(hashtextextended(old.session_date::text || ':' || old.slot::text, 0));
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended(new.session_date::text || ':' || new.slot::text, 0));
+  if exists (
+    select 1 from public.bookings
+    where status = 'confirmed'
+      and session_date = new.session_date
+      and slot = new.slot
+  ) then
+    raise exception 'A confirmed booking already exists for this slot.'
+      using errcode = '23505';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists bookings_respect_maintenance on public.bookings;
+create trigger bookings_respect_maintenance
+  before insert or update of session_date, slot, status on public.bookings
+  for each row execute function public.prevent_booking_during_maintenance();
+
+drop trigger if exists maintenance_respects_bookings on public.maintenance_slots;
+create trigger maintenance_respects_bookings
+  before insert or update of instrument_id, session_date, slot on public.maintenance_slots
+  for each row execute function public.prevent_maintenance_during_booking();
+
 create table if not exists public.booking_audit_logs (
   id bigint generated always as identity primary key,
   booking_id uuid references public.bookings(id) on delete set null,
@@ -149,9 +204,16 @@ create policy "Users can cancel their own bookings"
 -- Enable browser clients to receive booking changes immediately.
 do $$
 begin
-  alter publication supabase_realtime add table public.bookings;
-exception
-  when duplicate_object then null;
+  begin
+    alter publication supabase_realtime add table public.bookings;
+  exception
+    when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table public.maintenance_slots;
+  exception
+    when duplicate_object then null;
+  end;
 end
 $$;
 

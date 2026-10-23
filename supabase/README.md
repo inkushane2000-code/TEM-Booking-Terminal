@@ -15,6 +15,7 @@ This folder contains the initial backend setup for the EM Facility booking page.
 
 - Never put the Supabase service-role key in the browser.
 - The booking unique index prevents two confirmed bookings from taking the same date and time slot.
+- Maintenance blocks are stored in `maintenance_slots` and apply to the selected date/time slot across all instruments. Database triggers reject both user and operator bookings for blocked slots and prevent adding a block where a confirmed booking already exists. Re-run `schema.sql` after updating it, and redeploy `admin-booking` to enable the remote maintenance toggle.
 - The 9:30–10:30 AM slot (slot `0`) is reserved every weekday for superuser bookings placed by an administrator. The public booking UI blocks it, and row-level security rejects direct user inserts for it. Admin bookings must use the protected `admin-booking` Edge Function. Re-run `schema.sql` after updating it to apply the reservation rule to an existing project.
 - The private `signed-forms` bucket stores uploaded documents. Files must be uploaded under a user UUID folder, for example:
 

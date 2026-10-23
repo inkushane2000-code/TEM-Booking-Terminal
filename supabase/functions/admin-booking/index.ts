@@ -19,6 +19,46 @@ Deno.serve(async (request) => {
   const { action, password, booking } = await request.json();
   if (password !== Deno.env.get("ADMIN_PASSWORD")) return json({ error: "Unauthorized" }, 401);
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  if (action === "maintenance-set") {
+    const sessionDate = parseISODate(booking?.session_date);
+    const slot = booking?.slot;
+    const instrumentId = booking?.instrument_id;
+    if (!sessionDate || !Number.isInteger(slot) || slot < 0 || slot > 5
+      || typeof instrumentId !== "string" || !instrumentId
+      || typeof booking?.enabled !== "boolean"
+      || (booking.enabled && typeof booking?.created_by !== "string")) {
+      return json({ error: "A valid instrument, date, slot, and enabled state are required" }, 400);
+    }
+
+    if (!booking.enabled) {
+      const { error } = await admin
+        .from("maintenance_slots")
+        .delete()
+        .eq("session_date", booking.session_date)
+        .eq("slot", slot);
+      if (error) return json({ error: error.message }, 400);
+      return json({ ok: true });
+    }
+
+    const { data: existingBooking, error: bookingError } = await admin
+      .from("bookings")
+      .select("id")
+      .eq("status", "confirmed")
+      .eq("session_date", booking.session_date)
+      .eq("slot", slot)
+      .maybeSingle();
+    if (bookingError) return json({ error: bookingError.message }, 400);
+    if (existingBooking) return json({ error: "A confirmed booking already exists for this slot. Cancel it before adding maintenance." }, 409);
+
+    const { error } = await admin.from("maintenance_slots").upsert({
+      instrument_id: instrumentId,
+      session_date: booking.session_date,
+      slot,
+      created_by: booking.created_by,
+    }, { onConflict: "instrument_id,session_date,slot" });
+    if (error) return json({ error: error.message }, error.code === "23505" ? 409 : 400);
+    return json({ ok: true });
+  }
   if (action === "bulk-download-forms") {
     const startDate = parseISODate(booking?.start_date);
     const endDate = parseISODate(booking?.end_date);

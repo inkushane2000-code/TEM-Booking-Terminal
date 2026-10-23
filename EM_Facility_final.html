@@ -183,7 +183,7 @@
     <div id="operatorView" style="display:none;">
       <div class="panel forms-hero"><h2>Operator Console</h2><p>Facility-side controls for the single operator managing both instruments. This view is a front-end prototype; protect it with server-side authentication before deployment.</p></div>
       <div class="operator-grid">
-        <div class="panel operator-card"><h3>Slot Controls</h3><p>Block a slot for maintenance or facility reasons. Blocking a slot does not automatically block the other instrument.</p><div class="field"><label for="opDate">Date</label><input type="date" id="opDate"></div><div class="field"><label for="opSlot">Slot</label><div class="select-wrap"><select id="opSlot"></select></div></div><div class="field"><label for="opInstrument">Instrument</label><div class="select-wrap"><select id="opInstrument"></select></div></div><button class="btn btn-secondary" id="btnMaintenance">Toggle Maintenance</button></div>
+        <div class="panel operator-card"><h3>Slot Controls</h3><p>Block a date and time slot for maintenance or facility reasons. A maintenance block prevents bookings on every instrument for that slot.</p><div class="field"><label for="opDate">Date</label><input type="date" id="opDate"></div><div class="field"><label for="opSlot">Slot</label><div class="select-wrap"><select id="opSlot"></select></div></div><div class="field"><label for="opInstrument">Instrument</label><div class="select-wrap"><select id="opInstrument"></select></div></div><button class="btn btn-secondary" id="btnMaintenance">Toggle Maintenance</button></div>
         <div class="panel operator-card"><h3>Current Bookings</h3><button class="btn btn-primary" id="btnAddOperatorBooking">Add Booking</button><div id="operatorBookings" class="operator-bookings"></div><button class="btn btn-secondary" id="btnExport">Export Booking List (CSV)</button><button class="btn btn-secondary" id="btnBulkExportForms">Download Booking Forms (ZIP)</button><p class="operator-export-note">Bulk download is available after the booking window closes Sunday at 11:00 AM.</p></div>
       </div>
     </div>
@@ -345,4 +345,4 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="script.js?v=12"></script>
+<script src="script.js?v=13"></script>
