@@ -64,6 +64,8 @@
     box-shadow: 0 4px 14px rgba(47,92,246,.35);
   }
   .brand-mark svg{width:20px;height:20px;}
+  .brand-mark-iisc{background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.2);}
+  .brand-mark-iisc img{width:32px;height:32px;object-fit:contain;}
   .brand-name{font-size:15.5px;font-weight:700;color:#fff;line-height:1.15;}
   .brand-sub{font-size:11px;color:#8b93ad;letter-spacing:.02em;}
   .nav-item,.field select,.field input,.btn{letter-spacing:-.005em;}
