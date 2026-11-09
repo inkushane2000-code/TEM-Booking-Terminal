@@ -37,13 +37,14 @@
   function mondayOfNextWeek(d=new Date()){const today=dateOnly(d);const day=today.getDay();const daysUntilNextMonday=day===1?7:(8-day)%7||7;return addDays(today,daysUntilNextMonday);}
   function upcomingMonday(d=new Date()){return addDays(mondayOfNextWeek(d),0);}
   function bookingWindow(){
-    const now=new Date(); const today=dateOnly(now); const day=today.getDay();
-    let open=new Date(today), close=new Date(today);
-    const friday=new Date(today); friday.setDate(friday.getDate()-(day===0?2:day===1?3:day===2?4:day===3?5:day===4?6:0)); friday.setHours(12,0,0,0);
-    const sunday=new Date(friday); sunday.setDate(sunday.getDate()+2); sunday.setHours(11,0,0,0);
-    if(now>=friday&&now<=sunday){open=friday;close=sunday;}
-    else {open=new Date(friday); if(now>close) open.setDate(open.getDate()+7); close=new Date(open); close.setDate(close.getDate()+2); close.setHours(11,0,0,0);}
-    return {open,close,active:now>=open&&now<=close};
+    // Window: Friday 12:00 → Sunday 11:00. Find the most recent Friday noon at or before now.
+    const now=new Date(), today=dateOnly(now);
+    const open=new Date(today); open.setDate(open.getDate()-((today.getDay()+2)%7)); open.setHours(12,0,0,0);
+    if(now<open) open.setDate(open.getDate()-7); // Friday morning: last window started a week ago
+    const close=new Date(open); close.setDate(close.getDate()+2); close.setHours(11,0,0,0);
+    if(now<=close) return {open,close,active:true};
+    open.setDate(open.getDate()+7); close.setDate(close.getDate()+7);
+    return {open,close,active:false};
   }
   function targetWeek(){return upcomingMonday();}
   function bookingCycleWeek(){
