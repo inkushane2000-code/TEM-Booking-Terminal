@@ -29,19 +29,22 @@
   Object.assign(state, Object.fromEntries(DEMO_BOOKINGS.map(x=>[x.key,x])));
 
   function pad(n){return String(n).padStart(2,'0');}
+  // Escape user-supplied text before it is placed in innerHTML (names, PI, specimen, IDs).
+  function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
   function dateOnly(d){return new Date(d.getFullYear(),d.getMonth(),d.getDate());}
   function iso(d){return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;}
   function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return dateOnly(x);}
   function mondayOfNextWeek(d=new Date()){const today=dateOnly(d);const day=today.getDay();const daysUntilNextMonday=day===1?7:(8-day)%7||7;return addDays(today,daysUntilNextMonday);}
   function upcomingMonday(d=new Date()){return addDays(mondayOfNextWeek(d),0);}
   function bookingWindow(){
-    const now=new Date(); const today=dateOnly(now); const day=today.getDay();
-    let open=new Date(today), close=new Date(today);
-    const friday=new Date(today); friday.setDate(friday.getDate()-(day===0?2:day===1?3:day===2?4:day===3?5:day===4?6:0)); friday.setHours(12,0,0,0);
-    const sunday=new Date(friday); sunday.setDate(sunday.getDate()+2); sunday.setHours(11,0,0,0);
-    if(now>=friday&&now<=sunday){open=friday;close=sunday;}
-    else {open=new Date(friday); if(now>close) open.setDate(open.getDate()+7); close=new Date(open); close.setDate(close.getDate()+2); close.setHours(11,0,0,0);}
-    return {open,close,active:now>=open&&now<=close};
+    // Window: Friday 12:00 → Sunday 11:00. Find the most recent Friday noon at or before now.
+    const now=new Date(), today=dateOnly(now);
+    const open=new Date(today); open.setDate(open.getDate()-((today.getDay()+2)%7)); open.setHours(12,0,0,0);
+    if(now<open) open.setDate(open.getDate()-7); // Friday morning: last window started a week ago
+    const close=new Date(open); close.setDate(close.getDate()+2); close.setHours(11,0,0,0);
+    if(now<=close) return {open,close,active:true};
+    open.setDate(open.getDate()+7); close.setDate(close.getDate()+7);
+    return {open,close,active:false};
   }
   function targetWeek(){return upcomingMonday();}
   function bookingCycleWeek(){
@@ -55,12 +58,33 @@
   function keyFor(instr,dateISO,slot){return instr+'|'+dateISO+'|'+slot;}
   function otherInstrument(k){return INSTRUMENTS.find(x=>x.key!==k)?.key||k;}
   function instrumentName(k){return INSTRUMENTS.find(x=>x.key===k)?.name||k;}
+  let holidays={}; // ISO date -> holiday name (IISc list, from Supabase)
+  // 4:00–5:00 PM: administrative break on Wed/Fri, external (non-IISc) users only on Mon/Tue. Enforced in the database too.
+  const ADMIN_BREAK_SLOT=5,EXTERNAL_SLOT=5;
+  const IISC_EMAIL=/(@|\.)iisc\.ac\.in\s*$/i;
+  // Internal (IISc) vs external is derived from the institution, the same way the database does it
+  // (public.is_iisc_institution). An iisc.ac.in email always counts as IISc.
+  function isIiscInstitution(text){
+    const t=String(text||'').toLowerCase().replace(/\./g,'').replace(/[^a-z]+/g,' ').trim();
+    if(/(^| )(iisc|iiscb|iiscbangalore|iiscbengaluru|iiscblr)( |$)/.test(t))return true;
+    return /(^| )indian institute of science( |$)/.test(t)&&!/indian institute of science education/.test(t);
+  }
+  function userTypeFor(institution,email){
+    if(IISC_EMAIL.test(email||'')||isIiscInstitution(institution))return 'iisc';
+    return String(institution||'').trim()?'external':'';
+  }
+  // A slot the person filling the form may book (external-only slots open up for external users).
+  function bookableFor(rec,userType=userTypeFor(document.getElementById('fInstitution')?.value,document.getElementById('fEmail')?.value)){return rec.status==='available'||(rec.status==='external'&&userType==='external');}
   function effectiveStatus(instr,dateISO,slot){
+    if(holidays[dateISO]&&state[keyFor(instr,dateISO,slot)]?.status!=='booked')return {status:'holiday',name:holidays[dateISO]};
+    const maintenance=Object.values(state).find(r=>r.status==='maintenance'&&r.date===dateISO&&r.slot===slot);
+    if(maintenance)return maintenance;
     const own=state[keyFor(instr,dateISO,slot)];
-    if(own?.status==='maintenance'||own?.status==='booked') return own;
+    if(own?.status==='booked') return own;
     if(slot===0)return {status:'reserved'};
     const date=new Date(dateISO+'T00:00:00');
-    if((date.getDay()===3||date.getDay()===5)&&slot===4)return {status:'administrative'};
+    if((date.getDay()===3||date.getDay()===5)&&slot===ADMIN_BREAK_SLOT)return {status:'administrative'};
+    if((date.getDay()===1||date.getDay()===2)&&slot===EXTERNAL_SLOT&&!INSTRUMENTS.some(x=>state[keyFor(x.key,dateISO,slot)]?.status==='booked'))return {status:'external'};
     const other=INSTRUMENTS.find(x=>x.key!==instr&&state[keyFor(x.key,dateISO,slot)]?.status==='booked');
     if(other) return {status:'restricted',by:other.key};
     return own||{status:'available'};
@@ -73,14 +97,47 @@
     Object.keys(state).forEach(key=>{
       if(state[key].remoteId&&!remoteKeys.has(state[key].remoteId))delete state[key];
     });
-    rows.forEach(r=>{state[keyFor(r.instrument_id,r.session_date,r.slot)]={status:'booked',id:r.booking_code,user:r.user_name,pi:r.pi_name,phone:r.phone,email:r.email,institution:r.institution,specimen:r.specimen,instr:r.instrument_id,date:r.session_date,slot:r.slot,form:r.form_path.split('/').pop(),formPath:r.form_path,createdAt:r.created_at,remoteId:r.id};});
+    rows.forEach(r=>{state[keyFor(r.instrument_id,r.session_date,r.slot)]={status:'booked',id:r.booking_code||'Booked',user:r.user_name,pi:r.pi_name,phone:r.phone,email:r.email,institution:r.institution,department:r.department,userType:r.user_category,specimen:r.specimen,instr:r.instrument_id,date:r.session_date,slot:r.slot,form:r.form_path?.split('/').pop(),formPath:r.form_path,createdAt:r.created_at,remoteId:r.id};});
     save();
   }
+  function applyRemoteMaintenance(rows){
+    Object.keys(state).forEach(key=>{if(state[key].status==='maintenance')delete state[key];});
+    rows.forEach(row=>{
+      state[keyFor(row.instrument_id,row.session_date,row.slot)]={
+        status:'maintenance',instr:row.instrument_id,date:row.session_date,slot:row.slot
+      };
+    });
+    save();
+  }
+  // Public schedule rows carry no contact details; the session's own bookings
+  // and (for an unlocked operator) the admin list fill in full rows by id.
   async function refreshRemoteBookings(){
     if(!supabaseClient||!remoteReady)return;
-    const {data:rows,error}=await supabaseClient.from('bookings').select('*').eq('status','confirmed');
-    if(error)throw error;
-    applyRemoteRows(rows||[]);
+    const [slots,own,maintenance,holidayRows]=await Promise.all([
+      supabaseClient.rpc('booked_slots'),
+      supabaseClient.from('bookings').select('*').eq('status','confirmed'),
+      supabaseClient.from('maintenance_slots').select('instrument_id,session_date,slot'),
+      supabaseClient.from('holidays').select('holiday_date,name').gte('holiday_date',iso(addDays(new Date(),-14)))
+    ]);
+    // Holidays are optional until the table exists, so an older database keeps working.
+    if(!holidayRows.error)holidays=Object.fromEntries((holidayRows.data||[]).map(h=>[h.holiday_date,h.name]));
+    else console.warn('Holiday list unavailable',holidayRows.error);
+    if(slots.error)throw slots.error;
+    if(own.error)throw own.error;
+    if(maintenance.error)throw maintenance.error;
+    const byId=new Map();
+    [...(slots.data||[]),...(own.data||[])].forEach(r=>byId.set(r.id,{...byId.get(r.id),...r}));
+    if(sessionStorage.getItem('em_operator_unlocked')==='true'){
+      try{
+        const {bookings}=await adminBookingRequest('list');
+        (bookings||[]).forEach(r=>byId.set(r.id,{...byId.get(r.id),...r}));
+      }catch(error){
+        console.error('Operator booking list failed',error);
+      }
+    }
+    applyRemoteRows([...byId.values()]);
+    applyRemoteMaintenance(maintenance.data||[]);
+    refreshPiUsage();
     renderAll();
     renderBookings();
     renderOperator();
@@ -88,6 +145,7 @@
   function subscribeToRemoteBookings(){
     remoteChannel=supabaseClient.channel('public-bookings')
       .on('postgres_changes',{event:'*',schema:'public',table:'bookings'},()=>refreshRemoteBookings().catch(error=>console.error('Booking refresh failed',error)))
+      .on('postgres_changes',{event:'*',schema:'public',table:'maintenance_slots'},()=>refreshRemoteBookings().catch(error=>console.error('Maintenance refresh failed',error)))
       .subscribe();
   }
   async function initializeRemote(){
@@ -117,7 +175,7 @@
     console.error('Supabase connection failed; retrying automatically.',error);
     const statusCode=Number(error?.status);
     const anonymousSignInDisabled=error?.message==='Anonymous sign-ins are disabled';
-    const missingBookingSchema=error?.code==='PGRST205'&&/public\.bookings/.test(error?.message||'');
+    const missingBookingSchema=(error?.code==='PGRST205'&&/public\.bookings/.test(error?.message||''))||(error?.code==='PGRST202'&&/booked_slots/.test(error?.message||''));
     const setupError=anonymousSignInDisabled||missingBookingSchema||(statusCode>=400&&statusCode<500&&statusCode!==408&&statusCode!==429);
     const message=anonymousSignInDisabled
       ?'Enable Anonymous Sign-Ins in Supabase Dashboard → Authentication → Providers, then retry the connection.'
@@ -146,6 +204,8 @@
         remoteRetryAttempt=0;
         if(remoteRetryTimer){clearTimeout(remoteRetryTimer);remoteRetryTimer=null;}
         setBookingServiceStatus('Booking service connected. Your booking will be saved securely.','connected');
+        loadPiDirectory();lookupPi();
+        if(document.getElementById('operatorView').style.display==='block'){loadPiAdmin();renderHolidayAdmin();}
         renderAll();
         renderOperator();
       }catch(error){
@@ -164,7 +224,7 @@
     if(upload.error)throw upload.error;
     const rows=f.slots.map(slot=>({
       id:crypto.randomUUID(),user_id:remoteUser.id,user_name:f.user,pi_name:f.pi,phone:f.phone,email:f.email,
-      institution:f.institution||null,specimen:f.specimen,instrument_id:f.instr,session_date:f.date,
+      institution:f.institution,department:f.department||null,specimen:f.specimen,instrument_id:f.instr,session_date:f.date,
       slot,form_path:formPath
     }));
     const {data,error}=await supabaseClient.from('bookings').insert(rows).select('booking_code,created_at,id,slot');
@@ -180,11 +240,13 @@
     user:document.getElementById('fUserName').value.trim(),pi:document.getElementById('fPiName').value.trim(),
     phone:document.getElementById('fPhone').value.trim(),email:document.getElementById('fEmail').value.trim(),
     institution:document.getElementById('fInstitution').value.trim(),specimen:document.getElementById('fSpecimen').value.trim(),
+    department:document.getElementById('fDepartment').value.trim(),
+    userType:userTypeFor(document.getElementById('fInstitution').value,document.getElementById('fEmail').value.trim()),
     instr:document.getElementById('fInstrument').value,date:selectedDate(),slots:[...document.getElementById('fSlot').selectedOptions].map(option=>Number(option.value))
   };}
-  function validForm(f){return f.user&&f.pi&&f.phone.replace(/\D/g,'').length>=10&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)&&f.specimen;}
+  function validForm(f){return f.user&&f.pi&&f.phone.replace(/\D/g,'').length>=10&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)&&f.specimen&&!!f.institution;}
   function isBookingWindowOpen(){return bookingWindow().active;}
-  function statusLabel(s){return {available:['Available','slot-available'],booked:['Booked','slot-booked'],mine:['My Booking','slot-mine'],maintenance:['Maintenance','slot-maintenance'],administrative:['Administrative Break','slot-administrative'],restricted:['Unavailable','slot-restricted'],reserved:['Reserved','slot-reserved']}[s]||['Unavailable','slot-restricted'];}
+  function statusLabel(s){return {holiday:['IISc holiday','slot-holiday'],available:['Available','slot-available'],booked:['Booked','slot-booked'],mine:['My Booking','slot-mine'],maintenance:['Maintenance','slot-maintenance'],administrative:['Administrative Break','slot-administrative'],external:['External users only','slot-external'],restricted:['Unavailable','slot-restricted'],reserved:['Reserved','slot-reserved']}[s]||['Unavailable','slot-restricted'];}
 
   function renderWindow(){
     const b=bookingWindow(), el=document.getElementById('windowBanner');
@@ -198,49 +260,156 @@
   function renderCountdown(b){
     const wrap=document.getElementById('windowCountdown'); if(!wrap)return;
     const target=b.active?b.close:b.open, total=Math.max(0,target-new Date());
-    const hours=Math.floor(total/3600000), minutes=Math.floor(total%3600000/60000), seconds=Math.floor(total%60000/1000);
-    wrap.innerHTML=`<div><b>${String(hours).padStart(2,'0')}</b><span>Hours</span></div><div><b>${String(minutes).padStart(2,'0')}</b><span>Minutes</span></div><div><b>${String(seconds).padStart(2,'0')}</b><span>Seconds</span></div>`;
+    const days=Math.floor(total/86400000), hours=Math.floor(total%86400000/3600000), minutes=Math.floor(total%3600000/60000), seconds=Math.floor(total%60000/1000);
+    const parts=days>0?[[days,'Days'],[hours,'Hours'],[minutes,'Minutes']]:[[hours,'Hours'],[minutes,'Minutes'],[seconds,'Seconds']];
+    wrap.setAttribute('aria-label',`${b.active?'Window closes':'Window opens'} in ${parts.map(([v,l])=>v+' '+l.toLowerCase()).join(' ')}`);
+    wrap.innerHTML=parts.map(([v,l])=>`<div><b>${String(v).padStart(2,'0')}</b><span>${l}</span></div>`).join('');
   }
-  function renderDayTabs(){const w=document.getElementById('dayTabs');w.innerHTML='';for(let i=0;i<WEEK_LEN;i++){const d=addDays(weekStart,i),t=document.createElement('button');t.type='button';t.className='day-tab'+(i===selectedDayIdx?' active':'');t.innerHTML=`<div class="dname">${DAY_NAMES[d.getDay()]}</div><div class="dnum">${pad(d.getDate())}</div>`;t.onclick=()=>{selectedDayIdx=i;renderAll();};w.appendChild(t);}}
-  function renderDateOptions(){const s=document.getElementById('fDate'),prev=s.value;s.innerHTML='';for(let i=0;i<WEEK_LEN;i++){const d=addDays(weekStart,i),o=document.createElement('option');o.value=iso(d);o.textContent=`${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} (${d.toLocaleDateString('en-US',{weekday:'long'})})`;s.appendChild(o);}const active=iso(addDays(weekStart,selectedDayIdx));s.value=[...s.options].some(o=>o.value===prev)?prev:active;}
+  function renderDayTabs(){const w=document.getElementById('dayTabs');w.innerHTML='';for(let i=0;i<WEEK_LEN;i++){const d=addDays(weekStart,i),t=document.createElement('button');t.type='button';t.className='day-tab'+(i===selectedDayIdx?' active':'');const hol=holidays[iso(d)];if(hol){t.classList.add('is-holiday');t.title='IISc holiday: '+hol;}t.innerHTML=`<div class="dname">${DAY_NAMES[d.getDay()]}</div><div class="dnum">${pad(d.getDate())}</div>${hol?'<div class="dhol">Holiday</div>':''}`;t.onclick=()=>{selectedDayIdx=i;const date=document.getElementById('fDate');if(date.value!==iso(d)){date.value=iso(d);[...document.getElementById('fSlot').options].forEach(o=>o.selected=false);}renderAll();};w.appendChild(t);}}
+  function renderDateOptions(){const s=document.getElementById('fDate'),prev=s.value;s.innerHTML='';for(let i=0;i<WEEK_LEN;i++){const d=addDays(weekStart,i),o=document.createElement('option');o.value=iso(d);o.textContent=`${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} (${d.toLocaleDateString('en-US',{weekday:'long'})})${holidays[iso(d)]?' — IISc holiday':''}`;s.appendChild(o);}const active=iso(addDays(weekStart,selectedDayIdx));s.value=[...s.options].some(o=>o.value===prev)?prev:active;}
   function renderSchedule(){
     const body=document.getElementById('schedBody');body.innerHTML='';const d=addDays(weekStart,selectedDayIdx),dISO=iso(d);
+    const banner=document.getElementById('holidayBanner');if(banner){banner.hidden=!holidays[dISO];banner.innerHTML=holidays[dISO]?`<b>${esc(d.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}))} is an IISc holiday — ${esc(holidays[dISO])}.</b> The facility is closed and slots can't be booked.`:'';}
     for(let slot=0;slot<SLOT_LABELS.length;slot++){const tr=document.createElement('tr'),time=document.createElement('td');time.className='timecol';time.textContent=SLOT_LABELS[slot].replace(' – ','–');tr.appendChild(time);
       DASHBOARD_INSTRUMENTS.forEach(instr=>{const td=document.createElement('td'),rec=effectiveStatus(instr.key,dISO,slot),[txt,cls]=statusLabel(rec.status),div=document.createElement('div');div.className='slot '+cls;
         const selectedSlots=getForm().slots,selected=document.getElementById('fInstrument').value===instr.key&&selectedDate()===dISO&&selectedSlots.includes(slot);if(selected)div.classList.add('slot-selected');
-        if(rec.status==='booked')div.innerHTML='<div>Booked</div><div class="stime">'+(rec.user||'Reserved')+'</div>';
+        if(rec.status==='booked')div.innerHTML='<div>Booked</div><div class="stime">'+esc(rec.user||'Reserved')+'</div>';
         else if(rec.status==='reserved')div.innerHTML='<div>Reserved for Super Users</div>';
         else if(rec.status==='restricted')div.innerHTML='<div>Unavailable</div><div class="stime">'+instrumentName(rec.by)+' booked</div>';
+        else if(rec.status==='holiday')div.innerHTML='<div>IISc holiday</div><div class="stime">'+esc(rec.name)+'</div>';
         else if(rec.status==='maintenance')div.innerHTML='<div>Maintenance</div><div class="stime">Facility hold</div>';
         else if(rec.status==='administrative')div.innerHTML='<div>Administrative Break</div><div class="stime">Booking unavailable</div>';
-        else div.innerHTML='<div>'+txt+'</div><div class="stime">Open slot</div>';
-        if(rec.status==='available'&&isBookingWindowOpen())div.onclick=()=>{document.getElementById('fInstrument').value=instr.key;document.getElementById('fDate').value=dISO;const slotOption=document.getElementById('fSlot').options[slot];slotOption.selected=!slotOption.selected;renderAll();};
+        else if(rec.status==='external')div.innerHTML='<div>External users only</div><div class="stime">Non-IISc users</div>';
+        else div.innerHTML='<div>'+txt+'</div>';
+        if(bookableFor(rec)&&isBookingWindowOpen())div.onclick=()=>{document.getElementById('fInstrument').value=instr.key;document.getElementById('fDate').value=dISO;const slotOption=document.getElementById('fSlot').options[slot];slotOption.selected=!slotOption.selected;renderAll();};
         td.appendChild(div);tr.appendChild(td);});body.appendChild(tr);}
   }
+  // ---- PI directory and per-PI limits (enforced in the database; mirrored here for feedback) ----
+  const PI_DAY_MAX=3,PI_WEEK_MAX=5;
+  let piState={status:'empty',pi:null,candidates:[],usage:{}},piTimer=null,piSeq=0;
+  function cleanDbError(message){return String(message||'').replace(/^[A-Z][A-Z_]+:\s*/,'');}
+  async function loadPiDirectory(){
+    if(!remoteReady)return;
+    const {data,error}=await supabaseClient.from('pis').select('id,name').order('name');
+    if(error){console.error('PI list failed',error);return;}
+    document.getElementById('piOptions').innerHTML=(data||[]).map(pi=>`<option value="${esc(pi.name)}"></option>`).join('');
+  }
+  async function fetchPiUsage(piId){
+    const {data,error}=await supabaseClient.rpc('pi_usage',{p_pi:piId,p_from:iso(weekStart),p_to:iso(addDays(weekStart,6))});
+    if(error)throw error;
+    return Object.fromEntries((data||[]).map(r=>[r.session_date,r.used]));
+  }
+  function schedulePiLookup(){clearTimeout(piTimer);piTimer=setTimeout(lookupPi,300);}
+  async function lookupPi(){
+    const name=document.getElementById('fPiName').value.trim(),seq=++piSeq;
+    if(!name){piState={status:'empty',pi:null,candidates:[],usage:{}};renderPiMatch();renderStatus();return;}
+    if(!remoteReady){piState={status:'offline',pi:null,candidates:[],usage:{}};renderPiMatch();renderStatus();return;}
+    piState={...piState,status:'loading'};renderPiMatch();renderStatus();
+    try{
+      const {data,error}=await supabaseClient.rpc('resolve_pi',{p_name:name});
+      if(error)throw error;
+      if(seq!==piSeq)return;
+      if(data.length===1){const usage=await fetchPiUsage(data[0].id);if(seq!==piSeq)return;piState={status:'match',pi:data[0],candidates:[],usage};}
+      else if(data.length>1)piState={status:'ambiguous',pi:null,candidates:data,usage:{}};
+      else piState={status:'new',pi:null,candidates:[],usage:{}};
+    }catch(error){
+      console.error('PI lookup failed',error);
+      if(seq!==piSeq)return;
+      piState={status:'error',pi:null,candidates:[],usage:{}};
+    }
+    renderPiMatch();renderStatus();
+  }
+  async function refreshPiUsage(){
+    if(piState.status!=='match')return;
+    try{piState={...piState,usage:await fetchPiUsage(piState.pi.id)};renderPiMatch();renderStatus();}catch(error){console.error('PI usage refresh failed',error);}
+  }
+  function piQuota(date){
+    const usage=piState.usage||{},dayUsed=usage[date]||0,weekUsed=Object.values(usage).reduce((a,b)=>a+b,0);
+    return {dayUsed,weekUsed,left:Math.max(0,Math.min(PI_DAY_MAX-dayUsed,PI_WEEK_MAX-weekUsed)),dayFull:dayUsed>=PI_DAY_MAX,weekFull:weekUsed>=PI_WEEK_MAX};
+  }
+  function renderPiMatch(){
+    const el=document.getElementById('piMatch');if(!el)return;
+    const st=piState.status;el.className='pi-match pi-'+st;
+    if(st==='match'){
+      const q=piQuota(selectedDate()),day=new Date(selectedDate()+'T00:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+      el.innerHTML=`<span class="pi-name">✓ ${esc(piState.pi.name)}</span>${piState.pi.status==='new'?' <span class="pi-new">new · pending facility review</span>':''}<span class="pi-usage"><b>${q.dayUsed}/${PI_DAY_MAX}</b> slots on ${esc(day)} · <b>${q.weekUsed}/${PI_WEEK_MAX}</b> this week</span>`;
+    }else if(st==='new'){
+      el.innerHTML='New PI — this name will be added to the facility’s PI list. Check the spelling, or pick your PI from the suggestions.';
+    }else if(st==='ambiguous'){
+      el.innerHTML='More than one PI matches. Choose yours: '+piState.candidates.map(c=>`<button type="button" class="pi-choice" data-name="${esc(c.name)}">${esc(c.name)}</button>`).join(' ');
+      el.querySelectorAll('.pi-choice').forEach(b=>b.onclick=()=>{const input=document.getElementById('fPiName');input.value=b.dataset.name;input.dispatchEvent(new Event('input'));lookupPi();});
+    }else if(st==='loading'){el.textContent='Checking PI…';}
+    else if(st==='error'){el.textContent='Could not check the PI right now; limits will still be checked when you book.';}
+    else el.textContent='';
+  }
+  function renderSlotChips(){
+    const wrap=document.getElementById('slotChips'),select=document.getElementById('fSlot');if(!wrap)return;
+    const f=getForm(),open=isBookingWindowOpen(),q=piState.status==='match'?piQuota(f.date):null,capped=q&&f.slots.length>=q.left;
+    wrap.innerHTML=SLOT_LABELS.map((label,slot)=>{
+      const rec=effectiveStatus(f.instr,f.date,slot),st=rec.status,can=bookableFor(rec,f.userType),on=select.options[slot]?.selected,ok=can&&open&&!(capped&&!on);
+      const why=!open?'Booking window closed':st==='external'&&!can?'External (non-IISc) users only':!can?statusLabel(st)[0]:capped?'PI limit reached':'';
+      return `<button type="button" class="slot-chip${on?' is-on':''}" data-slot="${slot}" aria-pressed="${on?'true':'false'}"${ok||on?'':' disabled'} title="${esc(why)}">${label.replace(' – ','–')}</button>`;
+    }).join('');
+    wrap.querySelectorAll('.slot-chip').forEach(chip=>chip.onclick=()=>{const o=select.options[Number(chip.dataset.slot)];o.selected=!o.selected;select.dispatchEvent(new Event('change'));});
+  }
+  function renderUserTypeHint(f){
+    const el=document.getElementById('userTypeHint');if(!el)return;
+    if(f.userType==='iisc')el.innerHTML=IISC_EMAIL.test(f.email)&&!isIiscInstitution(f.institution)?'<b>Internal (IISc) user</b> — your iisc.ac.in email marks you as IISc.':'<b>Internal (IISc) user.</b> Monday &amp; Tuesday 4:00–5:00 PM are reserved for external users.';
+    else if(f.userType==='external')el.innerHTML='<b>External user</b> — you can also book Monday &amp; Tuesday 4:00–5:00 PM.';
+    else el.innerHTML='IISc users are internal. Users from any other institution are external and can also book Monday &amp; Tuesday 4:00–5:00 PM.';
+  }
   function renderStatus(){
+    renderSlotChips();renderUserTypeHint(getForm());
     const f=getForm(),records=f.slots.map(slot=>effectiveStatus(f.instr,f.date,slot)),pill=document.getElementById('statusPill'),btn=document.getElementById('btnBook');
     let html=''; if(!isBookingWindowOpen()){pill.className='status-pill status-maintenance';html='Booking window closed';}
+    else if(holidays[f.date]){pill.className='status-pill status-maintenance';html=`IISc holiday (${esc(holidays[f.date])}) — the facility is closed`;}
     else if(!f.slots.length){pill.className='status-pill status-maintenance';html='Select at least one time slot';}
-    else if(records.every(rec=>rec.status==='available')){pill.className='status-pill status-available';html=`${f.slots.length} slot${f.slots.length===1?'':'s'} available — one registration`;}
+    else if(!f.institution){pill.className='status-pill status-maintenance';html='Enter your institution';}
+    else if(records.some(rec=>rec.status==='external'&&f.userType!=='external')){pill.className='status-pill status-maintenance';html='4:00–5:00 PM on Monday and Tuesday is for external (non-IISc) users only';}
+    else if(piState.status==='ambiguous'){pill.className='status-pill status-maintenance';html='Choose your PI from the list';}
+    else if(piState.status==='match'&&piQuota(f.date).dayUsed+f.slots.length>PI_DAY_MAX){const q=piQuota(f.date);pill.className='status-pill status-taken';html=q.dayFull?`${esc(piState.pi.name)} already has ${PI_DAY_MAX} slots on this day`:`${esc(piState.pi.name)} can book ${PI_DAY_MAX-q.dayUsed} more slot${PI_DAY_MAX-q.dayUsed===1?'':'s'} on this day`;}
+    else if(piState.status==='match'&&piQuota(f.date).weekUsed+f.slots.length>PI_WEEK_MAX){const q=piQuota(f.date);pill.className='status-pill status-taken';html=q.weekFull?`${esc(piState.pi.name)} already has ${PI_WEEK_MAX} slots this week`:`${esc(piState.pi.name)} can book ${PI_WEEK_MAX-q.weekUsed} more slot${PI_WEEK_MAX-q.weekUsed===1?'':'s'} this week`;}
+    else if(records.every(rec=>bookableFor(rec,f.userType))){pill.className='status-pill status-available';html=`${f.slots.length} slot${f.slots.length===1?'':'s'} available — one registration`;}
+    else if(records.some(rec=>rec.status==='holiday')){pill.className='status-pill status-maintenance';html=`IISc holiday (${records.find(rec=>rec.status==='holiday').name}) — the facility is closed`;}
     else if(records.some(rec=>rec.status==='reserved')){pill.className='status-pill status-maintenance';html='9:30–10:30 AM is reserved for Super Users';}
     else if(records.some(rec=>rec.status==='restricted')){pill.className='status-pill status-taken';html='One or more selected slots are unavailable';}
     else if(records.some(rec=>rec.status==='maintenance'||rec.status==='administrative')){pill.className='status-pill status-maintenance';html='One or more selected slots are unavailable';}
     else {pill.className='status-pill status-taken';html='One or more selected slots are already booked';}
-    pill.innerHTML='<span>'+html+'</span>';btn.disabled=!remoteReady||!isBookingWindowOpen()||!validForm(f)||!f.slots.length||records.some(rec=>rec.status!=='available');
+    pill.innerHTML='<span>'+html+'</span>';const piBlocked=piState.status==='ambiguous'||piState.status==='loading'||(piState.status==='match'&&f.slots.length>piQuota(f.date).left);
+    renderPiMatch();
+    btn.disabled=!remoteReady||!isBookingWindowOpen()||!validForm(f)||!f.slots.length||piBlocked||!records.every(rec=>bookableFor(rec,f.userType));
   }
-  function renderIdentity(){const p=profile();['fUserName','fPiName','fPhone','fEmail','fInstitution','fSpecimen'].forEach(id=>{const el=document.getElementById(id);if(!el.value&&p[id])el.value=p[id];});const name=document.getElementById('fUserName').value.trim()||'Guest';document.getElementById('userNameChip').textContent=name;document.getElementById('userAvatar').textContent=(name.match(/\b\w/g)||['?']).slice(0,2).join('').toUpperCase();}
+  function renderIdentity(){const p=profile();['fUserName','fPiName','fPhone','fEmail','fDepartment','fInstitution','fSpecimen'].forEach(id=>{const el=document.getElementById(id);if(!el.value&&p[id])el.value=p[id];});const name=document.getElementById('fUserName').value.trim()||'Guest';document.getElementById('userNameChip').textContent=name;document.getElementById('userAvatar').textContent=(name.match(/\b\w/g)||['?']).slice(0,2).join('').toUpperCase();}
   function renderBookings(){
     const mine=Object.entries(state).filter(([k,r])=>r.status==='booked'&&r.email===document.getElementById('fEmail').value.trim()).map(([k,r])=>({k,r})).sort((a,b)=>a.r.date.localeCompare(b.r.date)||a.r.slot-b.r.slot);
-    const wrap=document.getElementById('myBookingsList'); if(!mine.length){wrap.innerHTML='<div class="empty-state">No bookings found for this email. Bookings you make on this browser will appear here.</div>';return;}
-    wrap.innerHTML=mine.map(({k,r})=>`<div class="booking-card"><div><div class="booking-id mono">${r.id}</div><h3>${instrumentName(r.instr)}</h3><p>${new Date(r.date+'T00:00:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})} · ${SLOT_LABELS[r.slot]}</p><p><b>PI:</b> ${r.pi} · <b>Specimen:</b> ${r.specimen}</p></div><button class="btn btn-secondary cancel-btn" data-key="${k}">Cancel Booking</button></div>`).join('');
+    const wrap=document.getElementById('myBookingsList'); if(!mine.length){wrap.innerHTML='<div class="empty-state"><p>No bookings found for this email. Bookings you make on this browser will appear here.</p><button type="button" class="btn btn-primary empty-cta">Book a slot</button></div>';wrap.querySelector('.empty-cta').onclick=()=>switchView('dashboard');return;}
+    wrap.innerHTML=mine.map(({k,r})=>`<div class="booking-card"><div><div class="booking-id mono">${esc(r.id)}</div><h3>${instrumentName(r.instr)}</h3><p>${new Date(r.date+'T00:00:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})} · ${SLOT_LABELS[r.slot]}</p><p><b>PI:</b> ${esc(r.pi)} · <b>Specimen:</b> ${esc(r.specimen)}</p></div><button class="btn btn-secondary cancel-btn" data-key="${esc(k)}">Cancel Booking</button></div>`).join('');
     wrap.querySelectorAll('.cancel-btn').forEach(b=>b.onclick=()=>cancelBooking(b.dataset.key));
   }
-  function cancelBooking(k){const r=state[k];if(!r)return;if(!confirm(`Cancel booking ${r.id}?`))return;delete state[k];save();showToast('Booking cancelled; the slot is available again.');renderAll();renderBookings();renderOperator();}
+  const SLOT_STARTS=[[9,30],[10,30],[11,30],[14,0],[15,0],[16,0]];
+  function slotStart(r){const d=new Date(r.date+'T00:00:00'),[h,m]=SLOT_STARTS[r.slot]||[0,0];d.setHours(h,m,0,0);return d;}
+  async function cancelBooking(k){
+    const r=state[k];if(!r)return;
+    if(slotStart(r)<=new Date()){showToast('This session has already started. Please contact the facility.');return;}
+    if(!confirm(`Cancel booking ${r.id}?`))return;
+    try{
+      if(r.remoteId){
+        if(!remoteReady)throw new Error('Booking service is not connected. Please try again in a moment.');
+        const {data,error}=await supabaseClient.from('bookings').update({status:'cancelled',cancelled_at:new Date().toISOString()}).eq('id',r.remoteId).select('id');
+        if(error)throw error;
+        if(!data?.length)throw new Error('This booking was made from another browser, so it can’t be cancelled here. Please contact the facility.');
+      }
+      delete state[k];save();showToast('Booking cancelled; the slot is available again.');renderAll();renderBookings();renderOperator();
+    }catch(error){
+      console.error('Cancel failed',error);
+      showToast(error.message||'Booking could not be cancelled. Please try again.');
+    }
+  }
   let editingOperatorBookingKey=null;
-  function renderOperator(){const wrap=document.getElementById('operatorBookings');if(!wrap)return;const rows=Object.entries(state).filter(([,r])=>r.status==='booked').sort((a,b)=>a[1].date.localeCompare(b[1].date)||a[1].slot-b[1].slot);wrap.innerHTML=rows.length?rows.map(([key,r])=>`<div class="operator-row"><b>${r.id}</b><span>${r.date} · ${SLOT_LABELS[r.slot]}</span><span>${instrumentName(r.instr)}</span><span>${r.user} / ${r.pi}</span>${r.formPath&&r.formPath!=='operator-entry'?`<button class="btn btn-secondary operator-form-download" data-key="${key}">Download Form</button>`:'<span class="operator-form-missing">No uploaded form</span>'}<button class="btn btn-secondary operator-edit" data-key="${key}">Edit</button><button class="btn btn-secondary operator-delete" data-key="${key}">Delete</button></div>`).join(''):'<div class="empty-state">No bookings in this browser.</div>';wrap.querySelectorAll('.operator-form-download').forEach(b=>b.onclick=()=>downloadBookingForm(b.dataset.key));wrap.querySelectorAll('.operator-edit').forEach(b=>b.onclick=()=>openOperatorBooking(b.dataset.key));wrap.querySelectorAll('.operator-delete').forEach(b=>b.onclick=()=>deleteOperatorBooking(b.dataset.key));const bulkButton=document.getElementById('btnBulkExportForms');if(bulkButton){bulkButton.disabled=bookingWindow().active;bulkButton.title=bulkButton.disabled?'Available after the booking window closes Sunday at 11:00 AM':'';}}
+  function renderOperator(){const wrap=document.getElementById('operatorBookings');if(!wrap)return;const rows=Object.entries(state).filter(([,r])=>r.status==='booked').sort((a,b)=>a[1].date.localeCompare(b[1].date)||a[1].slot-b[1].slot);wrap.innerHTML=rows.length?rows.map(([key,r])=>`<div class="operator-row"><b>${esc(r.id)}</b><span>${esc(r.date)} · ${SLOT_LABELS[r.slot]}</span><span>${esc(instrumentName(r.instr))}</span><span>${esc(r.user)} / ${esc(r.pi)}${r.userType==='external'?` · <span class="ext-tag" title="${esc(r.institution||'')}">External</span>`:''}</span>${r.formPath&&r.formPath!=='operator-entry'?`<button class="btn btn-secondary operator-form-download" data-key="${esc(key)}">Download Form</button>`:'<span class="operator-form-missing">No uploaded form</span>'}<button class="btn btn-secondary operator-edit" data-key="${esc(key)}">Edit</button><button class="btn btn-secondary operator-delete" data-key="${esc(key)}">Delete</button></div>`).join(''):'<div class="empty-state">No bookings in this browser.</div>';wrap.querySelectorAll('.operator-form-download').forEach(b=>b.onclick=()=>downloadBookingForm(b.dataset.key));wrap.querySelectorAll('.operator-edit').forEach(b=>b.onclick=()=>openOperatorBooking(b.dataset.key));wrap.querySelectorAll('.operator-delete').forEach(b=>b.onclick=()=>deleteOperatorBooking(b.dataset.key));const bulkButton=document.getElementById('btnBulkExportForms');if(bulkButton){bulkButton.disabled=bookingWindow().active;bulkButton.title=bulkButton.disabled?'Available after the booking window closes Sunday at 11:00 AM':'';}}
   function openOperatorBooking(key=null){editingOperatorBookingKey=key;const r=key?state[key]:null;document.getElementById('operatorBookingTitle').textContent=r?'Edit Booking':'Add Booking';document.getElementById('opUser').value=r?.user||'';document.getElementById('opPi').value=r?.pi||'';document.getElementById('opEmail').value=r?.email||'';document.getElementById('opDateEdit').value=r?.date||iso(weekStart);document.getElementById('opSlotEdit').value=String(r?.slot??0);document.getElementById('opInstrumentEdit').value=r?.instr||'TEM';document.getElementById('operatorBookingModal').classList.add('show');}
-  function saveOperatorBooking(){const date=document.getElementById('opDateEdit').value,slot=Number(document.getElementById('opSlotEdit').value),instr=document.getElementById('opInstrumentEdit').value;if(!date||!document.getElementById('opUser').value.trim()||!document.getElementById('opPi').value.trim()||!document.getElementById('opEmail').value.trim()){showToast('Complete the booking details first.');return;}const key=keyFor(instr,date,slot),existing=state[key];if(existing?.status==='booked'&&key!==editingOperatorBookingKey){showToast('That instrument slot is already booked.');return;}const old=editingOperatorBookingKey?state[editingOperatorBookingKey]:null;state[key]={status:'booked',id:old?.id||'EM-'+new Date().getFullYear()+'-'+Math.random().toString(36).slice(2,8).toUpperCase(),user:document.getElementById('opUser').value.trim(),pi:document.getElementById('opPi').value.trim(),email:document.getElementById('opEmail').value.trim(),phone:old?.phone||'',institution:old?.institution||'',specimen:old?.specimen||'Operator booking',instr,date,slot,form:old?.form||'Operator entry',createdAt:old?.createdAt||new Date().toISOString()};if(editingOperatorBookingKey&&editingOperatorBookingKey!==key)delete state[editingOperatorBookingKey];save();document.getElementById('operatorBookingModal').classList.remove('show');renderAll();renderBookings();renderOperator();showToast('Admin booking saved.');}
-  async function adminBookingRequest(action,booking){
+  async function adminBookingRequest(action,booking,password=sessionStorage.getItem('em_operator_password')){
+    if(!supabaseClient)throw new Error('Booking service is not available');
     const {data:{session}}=await supabaseClient.auth.getSession();
     if(!session?.access_token)throw new Error('Supabase session is not ready');
     const response=await fetch(SUPABASE_URL+'/functions/v1/admin-booking',{
@@ -250,9 +419,14 @@
         apikey:SUPABASE_PUBLISHABLE_KEY,
         Authorization:`Bearer ${session.access_token}`
       },
-      body:JSON.stringify({action,password:sessionStorage.getItem('em_operator_password'),booking})
+      body:JSON.stringify({action,password,booking})
     });
     const result=await response.json().catch(()=>({}));
+    if(response.status===401){
+      sessionStorage.removeItem('em_operator_unlocked');
+      sessionStorage.removeItem('em_operator_password');
+      const error=new Error('Incorrect Operator Console password.');error.status=401;throw error;
+    }
     if(!response.ok)throw new Error(result.error||`Admin booking request failed (${response.status})`);
     return result;
   }
@@ -311,7 +485,7 @@
       renderOperator();
     }
   }
-  async function saveOperatorBooking(){const date=document.getElementById('opDateEdit').value,slot=Number(document.getElementById('opSlotEdit').value),instr=document.getElementById('opInstrumentEdit').value;if(!remoteUser){showToast('Remote session is not ready. Please reload and try again.');return;}if(!date||!document.getElementById('opUser').value.trim()||!document.getElementById('opPi').value.trim()||!document.getElementById('opEmail').value.trim()){showToast('Complete the booking details first.');return;}const key=keyFor(instr,date,slot),existing=state[key];if(existing?.status==='booked'&&key!==editingOperatorBookingKey){showToast('That instrument slot is already booked.');return;}const old=editingOperatorBookingKey?state[editingOperatorBookingKey]:null;const booking={id:old?.remoteId,user_id:remoteUser.id,instrument_id:instr,session_date:date,slot,user_name:document.getElementById('opUser').value.trim(),pi_name:document.getElementById('opPi').value.trim(),email:document.getElementById('opEmail').value.trim(),phone:old?.phone||'',institution:old?.institution||'',specimen:old?.specimen||'Operator booking'};try{const remote=await adminBookingRequest('upsert',booking);state[key]={status:'booked',id:remote.booking_code||old?.id||'Admin booking',remoteId:remote.id,user:booking.user_name,pi:booking.pi_name,email:booking.email,phone:booking.phone,institution:booking.institution,specimen:booking.specimen,instr,date,slot,form:'Operator entry',createdAt:remote.created_at||new Date().toISOString()};if(editingOperatorBookingKey&&editingOperatorBookingKey!==key)delete state[editingOperatorBookingKey];save();document.getElementById('operatorBookingModal').classList.remove('show');renderAll();renderBookings();renderOperator();showToast('Admin booking saved remotely.');}catch(error){console.error(error);showToast('Remote booking could not be saved.');}}
+  async function saveOperatorBooking(){const date=document.getElementById('opDateEdit').value,slot=Number(document.getElementById('opSlotEdit').value),instr=document.getElementById('opInstrumentEdit').value;if(!remoteUser){showToast('Remote session is not ready. Please reload and try again.');return;}if(!date||!document.getElementById('opUser').value.trim()||!document.getElementById('opPi').value.trim()||!document.getElementById('opEmail').value.trim()){showToast('Complete the booking details first.');return;}const key=keyFor(instr,date,slot),existing=state[key];if(existing?.status==='booked'&&key!==editingOperatorBookingKey){showToast('That instrument slot is already booked.');return;}const old=editingOperatorBookingKey?state[editingOperatorBookingKey]:null;const booking={id:old?.remoteId,user_id:remoteUser.id,instrument_id:instr,session_date:date,slot,user_name:document.getElementById('opUser').value.trim(),pi_name:document.getElementById('opPi').value.trim(),email:document.getElementById('opEmail').value.trim(),phone:old?.phone||'',institution:old?.institution||'',specimen:old?.specimen||'Operator booking'};try{const remote=await adminBookingRequest('upsert',booking);state[key]={status:'booked',id:remote.booking_code||old?.id||'Admin booking',remoteId:remote.id,user:booking.user_name,pi:booking.pi_name,email:booking.email,phone:booking.phone,institution:booking.institution,specimen:booking.specimen,instr,date,slot,form:'Operator entry',createdAt:remote.created_at||new Date().toISOString()};if(editingOperatorBookingKey&&editingOperatorBookingKey!==key)delete state[editingOperatorBookingKey];save();document.getElementById('operatorBookingModal').classList.remove('show');renderAll();renderBookings();renderOperator();showToast('Admin booking saved remotely.');}catch(error){console.error(error);showToast(cleanDbError(error.message)||'Remote booking could not be saved.');}}
   async function deleteOperatorBooking(key){const r=state[key];if(!r||!confirm(`Delete booking ${r.id}?`))return;try{if(r.remoteId)await adminBookingRequest('delete',{id:r.remoteId});delete state[key];save();renderAll();renderBookings();renderOperator();showToast('Booking deleted.');}catch(error){console.error(error);showToast('Remote booking could not be deleted.');}}
   function renderOptions(){
     const instrumentSelect=document.getElementById('fInstrument');
@@ -319,7 +493,7 @@
     [instrumentSelect,operatorInstrumentSelect,document.getElementById('opInstrumentEdit')].forEach((select,index)=>{
       const previous=[...select.selectedOptions].map(option=>option.value);
       const instruments=index===0?BOOKABLE_INSTRUMENTS:INSTRUMENTS;
-      select.innerHTML=instruments.map(instr=>`<option value="${instr.key}">${instr.name}${index===0?' — '+instr.sub:''}</option>`).join('');
+      select.innerHTML=instruments.map(instr=>`<option value="${instr.key}">${instr.name}</option>`).join('');
       [...select.options].forEach(option=>{option.selected=previous.includes(option.value);});
     });
     ['fSlot','opSlot','opSlotEdit'].forEach(id=>{
@@ -333,7 +507,7 @@
   function showToast(msg){const t=document.getElementById('toast');document.getElementById('toastMsg').textContent=msg;t.classList.add('show');clearTimeout(t._timer);t._timer=setTimeout(()=>t.classList.remove('show'),3200);}
   function switchView(view){
     if(view==='operator'&&!ensureAdminAccess())return;
-    const views=['dashboard','bookings','operator','instruments','forms','guidelines','support'];views.forEach(v=>{const el=document.getElementById(v+'View');if(el)el.style.display=v===view?'block':'none';});document.querySelectorAll('.nav-item').forEach(i=>i.classList.remove('active'));const target=document.querySelector(`.nav-item[data-view="${view}"]`);if(target)target.classList.add('active');if(view==='bookings')renderBookings();if(view==='operator')renderOperator();window.scrollTo({top:0,behavior:'smooth'});
+    const views=['dashboard','bookings','operator','instruments','forms','guidelines','support'];views.forEach(v=>{const el=document.getElementById(v+'View');if(el)el.style.display=v===view?'block':'none';});document.querySelectorAll('.nav-item').forEach(i=>i.classList.remove('active'));const target=document.querySelector(`.nav-item[data-view="${view}"]`);if(target)target.classList.add('active');if(view==='bookings')renderBookings();if(view==='operator'){renderOperator();loadPiAdmin();renderHolidayAdmin();}window.scrollTo({top:0,behavior:'smooth'});
   }
   function ensureAdminAccess(){
     if(sessionStorage.getItem('em_operator_unlocked')==='true')return true;
@@ -341,45 +515,55 @@
     document.getElementById('adminPassword').focus();
     return false;
   }
-  function unlockOperator(){
-    const input=document.getElementById('adminPassword');
-    if(input.value==='EM_GC-04'){
+  // The password is checked by the admin-booking Edge Function; it is never stored in this file.
+  async function unlockOperator(){
+    const input=document.getElementById('adminPassword'),button=document.getElementById('adminUnlock'),password=input.value;
+    if(!password){input.focus();return;}
+    if(!remoteReady){showToast('Booking service is not connected yet. Please try again in a moment.');return;}
+    button.disabled=true;
+    try{
+      await adminBookingRequest('verify',null,password);
       sessionStorage.setItem('em_operator_unlocked','true');
-      sessionStorage.setItem('em_operator_password',input.value);
+      sessionStorage.setItem('em_operator_password',password);
       input.value='';
       document.getElementById('adminLockModal').classList.remove('show');
       switchView('operator');
-    } else {
+      refreshRemoteBookings().catch(error=>console.error('Operator booking refresh failed',error));
+    }catch(error){
       input.value='';
-      showToast('Incorrect Operator Console password.');
+      showToast(error.status===401?'Incorrect Operator Console password.':(error.message||'Could not verify the password.'));
       input.focus();
+    }finally{
+      button.disabled=false;
     }
   }
 
   // Profile persistence
-  ['fUserName','fPiName','fPhone','fEmail','fInstitution','fSpecimen'].forEach(id=>document.getElementById(id).addEventListener('input',()=>{const f=getForm();saveProfile({fUserName:f.user,fPiName:f.pi,fPhone:f.phone,fEmail:f.email,fInstitution:f.institution,fSpecimen:f.specimen});renderStatus();renderSchedule();}));
+  ['fUserName','fPiName','fPhone','fEmail','fDepartment','fInstitution','fSpecimen'].forEach(id=>document.getElementById(id).addEventListener('input',()=>{const f=getForm();saveProfile({fUserName:f.user,fPiName:f.pi,fPhone:f.phone,fEmail:f.email,fDepartment:f.department,fInstitution:f.institution,fSpecimen:f.specimen});renderStatus();renderSchedule();}));
   document.getElementById('fInstrument').addEventListener('change',()=>{renderStatus();renderSchedule();});
   document.getElementById('fSlot').addEventListener('change',()=>{renderStatus();renderSchedule();});
-  document.getElementById('fDate').addEventListener('change',()=>{const idx=Math.round((new Date(selectedDate())-weekStart)/86400000);if(idx>=0&&idx<WEEK_LEN)selectedDayIdx=idx;renderStatus();renderSchedule();});
+  document.getElementById('fPiName').addEventListener('input',schedulePiLookup);
+  document.getElementById('fDate').addEventListener('change',()=>{const idx=Math.round((new Date(selectedDate()+'T00:00:00')-weekStart)/86400000);if(idx>=0&&idx<WEEK_LEN)selectedDayIdx=idx;[...document.getElementById('fSlot').options].forEach(o=>o.selected=false);renderAll();});
 
   document.getElementById('btnBook').onclick=async()=>{
     const f=getForm();if(!isBookingWindowOpen()){showToast('Booking is open from Friday noon to Sunday 11 AM.');return;}if(!validForm(f)||!f.slots.length){showToast('Please select at least one time slot and complete all required booking details.');return;}if(!fileInput.files?.length){pendingBooking=f;showAttachModal();return;}
-    const records=f.slots.map(slot=>effectiveStatus(f.instr,f.date,slot));if(records.some(rec=>rec.status!=='available')){showToast('One or more selected slots were just taken. Please choose available slots.');renderAll();return;}
+    const records=f.slots.map(slot=>effectiveStatus(f.instr,f.date,slot));if(!records.every(rec=>bookableFor(rec,f.userType))){showToast('One or more selected slots were just taken. Please choose available slots.');renderAll();return;}
     const file=fileInput.files[0];
     const btn=document.getElementById('btnBook');btn.disabled=true;btn.textContent='Saving booking…';
     try{
-      const remote=await createRemoteBookings(f,file),bookings=f.slots.map(slot=>{const result=remote.find(row=>row.slot===slot),id=result?.id||'EM-'+new Date().getFullYear()+'-'+Math.random().toString(36).slice(2,8).toUpperCase();state[keyFor(f.instr,f.date,slot)]={status:'booked',id,user:f.user,pi:f.pi,phone:f.phone,email:f.email,institution:f.institution,specimen:f.specimen,instr:f.instr,date:f.date,slot,form:file.name,formPath:result?.formPath,createdAt:result?.createdAt||new Date().toISOString(),remoteId:result?.remoteId};save();return {...f,id,slot};});resetAttachment();pendingBooking=null;renderAll();renderBookings();renderOperator();showConfirmation(bookings);
+      const remote=await createRemoteBookings(f,file),bookings=f.slots.map(slot=>{const result=remote.find(row=>row.slot===slot),id=result?.id||'EM-'+new Date().getFullYear()+'-'+Math.random().toString(36).slice(2,8).toUpperCase();state[keyFor(f.instr,f.date,slot)]={status:'booked',id,user:f.user,pi:f.pi,phone:f.phone,email:f.email,institution:f.institution,department:f.department,userType:f.userType,specimen:f.specimen,instr:f.instr,date:f.date,slot,form:file.name,formPath:result?.formPath,createdAt:result?.createdAt||new Date().toISOString(),remoteId:result?.remoteId};save();return {...f,id,slot};});resetAttachment();pendingBooking=null;renderAll();renderBookings();renderOperator();showConfirmation(bookings);refreshPiUsage();loadPiDirectory();
     }catch(error){
       console.error('Supabase booking failed',error);
       if(!navigator.onLine||error instanceof TypeError||Number(error?.status)>=500){
         scheduleRemoteRetry(error);
       }
-      showToast(error.message||'Booking could not be saved. Please try again.');
+      showToast(cleanDbError(error.message).replace(/^HOLIDAY:\s*/,'')||'Booking could not be saved. Please try again.');
+      if(/^PI_/.test(error?.message||''))lookupPi();
     }
     finally{btn.textContent='Confirm Booking';renderStatus();}
   };
 
-  function showConfirmation(bookings){const first=bookings[0];document.getElementById('confirmText').innerHTML=`<b>${bookings.length} slot${bookings.length===1?'':'s'} confirmed</b><br>${instrumentName(first.instr)}<br>${new Date(first.date+'T00:00:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}<br><br>${bookings.map(booking=>`${SLOT_LABELS[booking.slot]} — <span class="mono">${booking.id}</span>`).join('<br>')}<br><br><b>PI:</b> ${first.pi}<br><b>User:</b> ${first.user}`;document.getElementById('confirmModal').classList.add('show');}
+  function showConfirmation(bookings){const first=bookings[0];document.getElementById('confirmText').innerHTML=`<b>${bookings.length} slot${bookings.length===1?'':'s'} confirmed</b><br>${instrumentName(first.instr)}<br>${new Date(first.date+'T00:00:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}<br><br>${bookings.map(booking=>`${SLOT_LABELS[booking.slot]} — <span class="mono">${esc(booking.id)}</span>`).join('<br>')}<br><br><b>PI:</b> ${esc(first.pi)}<br><b>User:</b> ${esc(first.user)}`;document.getElementById('confirmModal').classList.add('show');}
   document.getElementById('confirmClose').onclick=()=>document.getElementById('confirmModal').classList.remove('show');
 
   document.querySelectorAll('.nav-item').forEach(i=>i.addEventListener('click',()=>{const v=i.dataset.view;if(v)switchView(v);}));
@@ -414,10 +598,118 @@
   document.getElementById('modalGoForms').onclick=()=>{hideAttachModal();switchView('forms');};
   attachModal.onclick=e=>{if(e.target===attachModal)hideAttachModal();};
 
+  // Operator: PI directory
+  let piAdminList=[],editingPiId=null;
+  async function loadPiAdmin(){
+    const wrap=document.getElementById('piDirectoryList');if(!wrap)return;
+    try{
+      const {pis}=await adminBookingRequest('pi-list');
+      piAdminList=pis||[];
+      const order=[...piAdminList].sort((a,b)=>(a.status==='new'?0:1)-(b.status==='new'?0:1)||a.name.localeCompare(b.name));
+      wrap.innerHTML=order.length?order.map(pi=>`<div class="pi-row${pi.status==='new'?' is-new':''}"><div><b>${esc(pi.name)}</b>${pi.status==='new'?' <span class="pi-new">New</span>':''}<div class="pi-aliases">${pi.aliases.length?'Also: '+pi.aliases.map(esc).join(', '):''}</div></div><span class="pi-count">${pi.bookings} booking${pi.bookings===1?'':'s'}</span><button class="btn btn-secondary pi-edit" type="button" data-id="${esc(pi.id)}">${pi.status==='new'?'Review':'Edit'}</button></div>`).join(''):'<div class="empty-state">No PIs yet.</div>';
+      wrap.querySelectorAll('.pi-edit').forEach(b=>b.onclick=()=>openPiModal(b.dataset.id));
+    }catch(error){
+      console.error('PI directory failed',error);
+      wrap.innerHTML=`<div class="empty-state">${esc(error.message||'Could not load the PI directory.')}</div>`;
+    }
+  }
+  function openPiModal(id=null){
+    editingPiId=id;const pi=piAdminList.find(p=>p.id===id);
+    document.getElementById('piModalTitle').textContent=pi?(pi.status==='new'?'Review new PI':'Edit PI'):'Add PI';
+    document.getElementById('piNameEdit').value=pi?.name||'';
+    document.getElementById('piAliasesEdit').value=(pi?.aliases||[]).join(', ');
+    document.getElementById('piMergeField').hidden=!pi;
+    document.getElementById('piMergeTarget').innerHTML=piAdminList.filter(p=>p.id!==id).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+    document.getElementById('piModal').classList.add('show');
+    document.getElementById('piNameEdit').focus();
+  }
+  async function afterPiChange(message){
+    document.getElementById('piModal').classList.remove('show');
+    await loadPiAdmin();loadPiDirectory();lookupPi();
+    refreshRemoteBookings().catch(error=>console.error(error));
+    showToast(message);
+  }
+  document.getElementById('btnAddPi').onclick=()=>openPiModal();
+  document.getElementById('piCancel').onclick=()=>document.getElementById('piModal').classList.remove('show');
+  document.getElementById('piSave').onclick=async()=>{
+    const name=document.getElementById('piNameEdit').value.trim();
+    if(!name){showToast('Enter the PI name.');return;}
+    const aliases=document.getElementById('piAliasesEdit').value.split(/[,\n]/).map(a=>a.trim()).filter(Boolean);
+    try{await adminBookingRequest('pi-save',{id:editingPiId,name,aliases});await afterPiChange('PI saved.');}
+    catch(error){console.error(error);showToast(error.message||'PI could not be saved.');}
+  };
+  document.getElementById('piMergeBtn').onclick=async()=>{
+    const from=piAdminList.find(p=>p.id===editingPiId),to=piAdminList.find(p=>p.id===document.getElementById('piMergeTarget').value);
+    if(!from||!to)return;
+    if(!confirm(`Merge “${from.name}” into “${to.name}”? Its ${from.bookings} booking(s) and spellings move to ${to.name}.`))return;
+    try{await adminBookingRequest('pi-merge',{from:from.id,to:to.id});await afterPiChange(`Merged into ${to.name}.`);}
+    catch(error){console.error(error);showToast(error.message||'PIs could not be merged.');}
+  };
+
+  // Operator: holidays
+  async function renderHolidayAdmin(){
+    const wrap=document.getElementById('holidayList');if(!wrap)return;
+    const today=iso(new Date()),upcoming=Object.entries(holidays).filter(([d])=>d>=today).sort();
+    wrap.innerHTML=upcoming.length?upcoming.map(([d,name])=>`<div class="holiday-row"><span class="mono">${esc(new Date(d+'T00:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'numeric'}))}</span><span>${esc(name)}</span><button class="btn btn-secondary holiday-remove" type="button" data-date="${esc(d)}">Remove</button></div>`).join(''):'<div class="empty-state">No upcoming holidays loaded. Use “Check IISc now” or add them here.</div>';
+    wrap.querySelectorAll('.holiday-remove').forEach(b=>b.onclick=()=>setHoliday(b.dataset.date,null,false));
+    loadHolidaySync();
+  }
+  const SYNC_LABEL={ok:'Loaded',unchanged:'Loaded',not_published:'Not published yet',needs_review:'Needs your review',failed:'Check failed'};
+  function renderHolidaySync(log){
+    const box=document.getElementById('holidaySyncStatus');if(!box)return;
+    const year=new Date().getFullYear(),rows=[year,year+1].map(y=>log.find(r=>r.year===y)||{year:y,status:'not_published',message:y===year?'Not checked yet.':`IISc has not published the ${y} list yet.`});
+    const fmt=t=>t?new Date(t).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'never';
+    // From mid-December, a missing next-year list means January bookings are not holiday-protected.
+    const late=new Date().getMonth()===11&&new Date().getDate()>=15;
+    box.innerHTML=rows.map(r=>{
+      const warn=r.status==='needs_review'||r.status==='failed'||(r.year===year&&r.status!=='ok')||(r.year===year+1&&late&&r.status!=='ok');
+      return `<div class="sync-row${warn?' is-warn':''}"><b>${r.year}</b> <span class="sync-badge sync-${esc(r.status)}">${esc(SYNC_LABEL[r.status]||r.status)}</span> <span class="sync-msg">${esc(r.message)}${r.pdf_url?` <a href="${esc(r.pdf_url)}" target="_blank" rel="noopener">PDF</a>`:''}</span></div>`;
+    }).join('')+`<div class="sync-when">Last checked ${esc(fmt(rows.map(r=>r.checked_at).filter(Boolean).sort().pop()))} · checks daily at 07:00</div>`;
+  }
+  async function loadHolidaySync(){
+    try{const {log}=await adminBookingRequest('holiday-sync-status');renderHolidaySync(log||[]);}
+    catch(error){const box=document.getElementById('holidaySyncStatus');if(box)box.textContent='Sync status unavailable: '+(error.message||error);}
+  }
+  document.getElementById('btnSyncHolidays').onclick=async(e)=>{
+    const btn=e.currentTarget;btn.disabled=true;btn.textContent='Checking…';
+    try{
+      const {reports}=await adminBookingRequest('holiday-sync');
+      await refreshRemoteBookings();renderHolidayAdmin();
+      const bad=(reports||[]).find(r=>r.status==='needs_review'||r.status==='failed');
+      showToast(bad?bad.message:(reports||[]).map(r=>r.message).join(' '));
+    }catch(error){console.error(error);showToast(error.message||'IISc check failed.');}
+    finally{btn.disabled=false;btn.textContent='Check IISc now';}
+  };
+  async function setHoliday(date,name,enabled){
+    if(!enabled&&!confirm(`Remove the holiday on ${date}? Students will be able to book that day, and the daily IISc check will not add it back.`))return;
+    try{
+      const result=await adminBookingRequest('holiday-set',{holiday_date:date,name,enabled});
+      await refreshRemoteBookings();renderHolidayAdmin();
+      showToast(enabled?(result.existingBookings?`Holiday added. ${result.existingBookings} existing booking(s) on that day were kept — contact those users.`:'Holiday added; bookings are blocked that day.'):'Holiday removed.');
+    }catch(error){console.error(error);showToast(error.message||'Holiday could not be saved.');}
+  }
+  document.getElementById('btnAddHoliday').onclick=()=>{
+    const date=document.getElementById('holidayDate').value,name=document.getElementById('holidayName').value.trim();
+    if(!date||!name){showToast('Enter the holiday date and name.');return;}
+    setHoliday(date,name,true).then(()=>{document.getElementById('holidayName').value='';});
+  };
+
   // Operator controls
-  document.getElementById('btnMaintenance').onclick=()=>{const d=document.getElementById('opDate').value,s=Number(document.getElementById('opSlot').value),i=document.getElementById('opInstrument').value,k=keyFor(i,d,s),r=state[k];if(r?.status==='booked'){showToast('A booked slot cannot be blocked. Cancel/release it first.');return;}if(r?.status==='maintenance')delete state[k];else state[k]={status:'maintenance'};save();showToast(state[k]?'Slot marked for maintenance':'Maintenance block removed');renderAll();renderOperator();};
+  document.getElementById('btnMaintenance').onclick=async()=>{
+    const date=document.getElementById('opDate').value,slot=Number(document.getElementById('opSlot').value),instrumentId=document.getElementById('opInstrument').value;
+    if(!remoteReady||!remoteUser){showToast('Booking service is not connected. Maintenance changes cannot be saved.');return;}
+    const enabled=!Object.values(state).some(r=>r.status==='maintenance'&&r.date===date&&r.slot===slot);
+    try{
+      await adminBookingRequest('maintenance-set',{instrument_id:instrumentId,session_date:date,slot,enabled,created_by:remoteUser.id});
+      await refreshRemoteBookings();
+      showToast(enabled?'Slot marked for maintenance':'Maintenance block removed');
+    }catch(error){
+      console.error('Maintenance update failed',error);
+      showToast(error.message||'Maintenance change could not be saved.');
+    }
+  };
   document.getElementById('opDate').value=iso(weekStart);
-  document.getElementById('btnExport').onclick=()=>{const rows=[['Booking ID','Date','Slot','Instrument','User','PI','Phone','Email','Institution','Specimen','Form','Created At']];Object.values(state).filter(r=>r.status==='booked').forEach(r=>rows.push([r.id,r.date,SLOT_LABELS[r.slot],instrumentName(r.instr),r.user,r.pi,r.phone,r.email,r.institution,r.specimen,r.form,r.createdAt]));const csv=rows.map(row=>row.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='EM_Facility_Bookings.csv';a.click();URL.revokeObjectURL(url);};
+  document.getElementById('btnExport').onclick=()=>{const rows=[['Booking ID','Date','Slot','Instrument','User','PI','Phone','Email','Institution','Department','User Type','Specimen','Form','Created At']];Object.values(state).filter(r=>r.status==='booked').forEach(r=>rows.push([r.id,r.date,SLOT_LABELS[r.slot],instrumentName(r.instr),r.user,r.pi,r.phone,r.email,r.institution,r.department,r.userType==='external'?'External':r.userType==='iisc'?'IISc':'',r.specimen,r.form,r.createdAt]));const csv=rows.map(row=>row.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='EM_Facility_Bookings.csv';a.click();URL.revokeObjectURL(url);};
 
   document.getElementById('bookingServiceRetry').onclick=()=>{
     remoteRetryAttempt=0;
