@@ -232,8 +232,10 @@
   function renderCountdown(b){
     const wrap=document.getElementById('windowCountdown'); if(!wrap)return;
     const target=b.active?b.close:b.open, total=Math.max(0,target-new Date());
-    const hours=Math.floor(total/3600000), minutes=Math.floor(total%3600000/60000), seconds=Math.floor(total%60000/1000);
-    wrap.innerHTML=`<div><b>${String(hours).padStart(2,'0')}</b><span>Hours</span></div><div><b>${String(minutes).padStart(2,'0')}</b><span>Minutes</span></div><div><b>${String(seconds).padStart(2,'0')}</b><span>Seconds</span></div>`;
+    const days=Math.floor(total/86400000), hours=Math.floor(total%86400000/3600000), minutes=Math.floor(total%3600000/60000), seconds=Math.floor(total%60000/1000);
+    const parts=days>0?[[days,'Days'],[hours,'Hours'],[minutes,'Minutes']]:[[hours,'Hours'],[minutes,'Minutes'],[seconds,'Seconds']];
+    wrap.setAttribute('aria-label',`${b.active?'Window closes':'Window opens'} in ${parts.map(([v,l])=>v+' '+l.toLowerCase()).join(' ')}`);
+    wrap.innerHTML=parts.map(([v,l])=>`<div><b>${String(v).padStart(2,'0')}</b><span>${l}</span></div>`).join('');
   }
   function renderDayTabs(){const w=document.getElementById('dayTabs');w.innerHTML='';for(let i=0;i<WEEK_LEN;i++){const d=addDays(weekStart,i),t=document.createElement('button');t.type='button';t.className='day-tab'+(i===selectedDayIdx?' active':'');t.innerHTML=`<div class="dname">${DAY_NAMES[d.getDay()]}</div><div class="dnum">${pad(d.getDate())}</div>`;t.onclick=()=>{selectedDayIdx=i;renderAll();};w.appendChild(t);}}
   function renderDateOptions(){const s=document.getElementById('fDate'),prev=s.value;s.innerHTML='';for(let i=0;i<WEEK_LEN;i++){const d=addDays(weekStart,i),o=document.createElement('option');o.value=iso(d);o.textContent=`${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} (${d.toLocaleDateString('en-US',{weekday:'long'})})`;s.appendChild(o);}const active=iso(addDays(weekStart,selectedDayIdx));s.value=[...s.options].some(o=>o.value===prev)?prev:active;}
@@ -247,11 +249,21 @@
         else if(rec.status==='restricted')div.innerHTML='<div>Unavailable</div><div class="stime">'+instrumentName(rec.by)+' booked</div>';
         else if(rec.status==='maintenance')div.innerHTML='<div>Maintenance</div><div class="stime">Facility hold</div>';
         else if(rec.status==='administrative')div.innerHTML='<div>Administrative Break</div><div class="stime">Booking unavailable</div>';
-        else div.innerHTML='<div>'+txt+'</div><div class="stime">Open slot</div>';
+        else div.innerHTML='<div>'+txt+'</div>';
         if(rec.status==='available'&&isBookingWindowOpen())div.onclick=()=>{document.getElementById('fInstrument').value=instr.key;document.getElementById('fDate').value=dISO;const slotOption=document.getElementById('fSlot').options[slot];slotOption.selected=!slotOption.selected;renderAll();};
         td.appendChild(div);tr.appendChild(td);});body.appendChild(tr);}
   }
+  function renderSlotChips(){
+    const wrap=document.getElementById('slotChips'),select=document.getElementById('fSlot');if(!wrap)return;
+    const f=getForm(),open=isBookingWindowOpen();
+    wrap.innerHTML=SLOT_LABELS.map((label,slot)=>{
+      const st=effectiveStatus(f.instr,f.date,slot).status,ok=st==='available'&&open,on=select.options[slot]?.selected;
+      return `<button type="button" class="slot-chip${on?' is-on':''}" data-slot="${slot}" aria-pressed="${on?'true':'false'}"${ok||on?'':' disabled'} title="${ok?'':esc(statusLabel(st)[0])}">${label.replace(' – ','–')}</button>`;
+    }).join('');
+    wrap.querySelectorAll('.slot-chip').forEach(chip=>chip.onclick=()=>{const o=select.options[Number(chip.dataset.slot)];o.selected=!o.selected;select.dispatchEvent(new Event('change'));});
+  }
   function renderStatus(){
+    renderSlotChips();
     const f=getForm(),records=f.slots.map(slot=>effectiveStatus(f.instr,f.date,slot)),pill=document.getElementById('statusPill'),btn=document.getElementById('btnBook');
     let html=''; if(!isBookingWindowOpen()){pill.className='status-pill status-maintenance';html='Booking window closed';}
     else if(!f.slots.length){pill.className='status-pill status-maintenance';html='Select at least one time slot';}
@@ -265,15 +277,32 @@
   function renderIdentity(){const p=profile();['fUserName','fPiName','fPhone','fEmail','fInstitution','fSpecimen'].forEach(id=>{const el=document.getElementById(id);if(!el.value&&p[id])el.value=p[id];});const name=document.getElementById('fUserName').value.trim()||'Guest';document.getElementById('userNameChip').textContent=name;document.getElementById('userAvatar').textContent=(name.match(/\b\w/g)||['?']).slice(0,2).join('').toUpperCase();}
   function renderBookings(){
     const mine=Object.entries(state).filter(([k,r])=>r.status==='booked'&&r.email===document.getElementById('fEmail').value.trim()).map(([k,r])=>({k,r})).sort((a,b)=>a.r.date.localeCompare(b.r.date)||a.r.slot-b.r.slot);
-    const wrap=document.getElementById('myBookingsList'); if(!mine.length){wrap.innerHTML='<div class="empty-state">No bookings found for this email. Bookings you make on this browser will appear here.</div>';return;}
+    const wrap=document.getElementById('myBookingsList'); if(!mine.length){wrap.innerHTML='<div class="empty-state"><p>No bookings found for this email. Bookings you make on this browser will appear here.</p><button type="button" class="btn btn-primary empty-cta">Book a slot</button></div>';wrap.querySelector('.empty-cta').onclick=()=>switchView('dashboard');return;}
     wrap.innerHTML=mine.map(({k,r})=>`<div class="booking-card"><div><div class="booking-id mono">${esc(r.id)}</div><h3>${instrumentName(r.instr)}</h3><p>${new Date(r.date+'T00:00:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})} · ${SLOT_LABELS[r.slot]}</p><p><b>PI:</b> ${esc(r.pi)} · <b>Specimen:</b> ${esc(r.specimen)}</p></div><button class="btn btn-secondary cancel-btn" data-key="${esc(k)}">Cancel Booking</button></div>`).join('');
     wrap.querySelectorAll('.cancel-btn').forEach(b=>b.onclick=()=>cancelBooking(b.dataset.key));
   }
-  function cancelBooking(k){const r=state[k];if(!r)return;if(!confirm(`Cancel booking ${r.id}?`))return;delete state[k];save();showToast('Booking cancelled; the slot is available again.');renderAll();renderBookings();renderOperator();}
+  const SLOT_STARTS=[[9,30],[10,30],[11,30],[14,0],[15,0],[16,0]];
+  function slotStart(r){const d=new Date(r.date+'T00:00:00'),[h,m]=SLOT_STARTS[r.slot]||[0,0];d.setHours(h,m,0,0);return d;}
+  async function cancelBooking(k){
+    const r=state[k];if(!r)return;
+    if(slotStart(r)<=new Date()){showToast('This session has already started. Please contact the facility.');return;}
+    if(!confirm(`Cancel booking ${r.id}?`))return;
+    try{
+      if(r.remoteId){
+        if(!remoteReady)throw new Error('Booking service is not connected. Please try again in a moment.');
+        const {data,error}=await supabaseClient.from('bookings').update({status:'cancelled',cancelled_at:new Date().toISOString()}).eq('id',r.remoteId).select('id');
+        if(error)throw error;
+        if(!data?.length)throw new Error('This booking was made from another browser, so it can’t be cancelled here. Please contact the facility.');
+      }
+      delete state[k];save();showToast('Booking cancelled; the slot is available again.');renderAll();renderBookings();renderOperator();
+    }catch(error){
+      console.error('Cancel failed',error);
+      showToast(error.message||'Booking could not be cancelled. Please try again.');
+    }
+  }
   let editingOperatorBookingKey=null;
   function renderOperator(){const wrap=document.getElementById('operatorBookings');if(!wrap)return;const rows=Object.entries(state).filter(([,r])=>r.status==='booked').sort((a,b)=>a[1].date.localeCompare(b[1].date)||a[1].slot-b[1].slot);wrap.innerHTML=rows.length?rows.map(([key,r])=>`<div class="operator-row"><b>${esc(r.id)}</b><span>${esc(r.date)} · ${SLOT_LABELS[r.slot]}</span><span>${esc(instrumentName(r.instr))}</span><span>${esc(r.user)} / ${esc(r.pi)}</span>${r.formPath&&r.formPath!=='operator-entry'?`<button class="btn btn-secondary operator-form-download" data-key="${esc(key)}">Download Form</button>`:'<span class="operator-form-missing">No uploaded form</span>'}<button class="btn btn-secondary operator-edit" data-key="${esc(key)}">Edit</button><button class="btn btn-secondary operator-delete" data-key="${esc(key)}">Delete</button></div>`).join(''):'<div class="empty-state">No bookings in this browser.</div>';wrap.querySelectorAll('.operator-form-download').forEach(b=>b.onclick=()=>downloadBookingForm(b.dataset.key));wrap.querySelectorAll('.operator-edit').forEach(b=>b.onclick=()=>openOperatorBooking(b.dataset.key));wrap.querySelectorAll('.operator-delete').forEach(b=>b.onclick=()=>deleteOperatorBooking(b.dataset.key));const bulkButton=document.getElementById('btnBulkExportForms');if(bulkButton){bulkButton.disabled=bookingWindow().active;bulkButton.title=bulkButton.disabled?'Available after the booking window closes Sunday at 11:00 AM':'';}}
   function openOperatorBooking(key=null){editingOperatorBookingKey=key;const r=key?state[key]:null;document.getElementById('operatorBookingTitle').textContent=r?'Edit Booking':'Add Booking';document.getElementById('opUser').value=r?.user||'';document.getElementById('opPi').value=r?.pi||'';document.getElementById('opEmail').value=r?.email||'';document.getElementById('opDateEdit').value=r?.date||iso(weekStart);document.getElementById('opSlotEdit').value=String(r?.slot??0);document.getElementById('opInstrumentEdit').value=r?.instr||'TEM';document.getElementById('operatorBookingModal').classList.add('show');}
-  function saveOperatorBooking(){const date=document.getElementById('opDateEdit').value,slot=Number(document.getElementById('opSlotEdit').value),instr=document.getElementById('opInstrumentEdit').value;if(!date||!document.getElementById('opUser').value.trim()||!document.getElementById('opPi').value.trim()||!document.getElementById('opEmail').value.trim()){showToast('Complete the booking details first.');return;}const key=keyFor(instr,date,slot),existing=state[key];if(existing?.status==='booked'&&key!==editingOperatorBookingKey){showToast('That instrument slot is already booked.');return;}const old=editingOperatorBookingKey?state[editingOperatorBookingKey]:null;state[key]={status:'booked',id:old?.id||'EM-'+new Date().getFullYear()+'-'+Math.random().toString(36).slice(2,8).toUpperCase(),user:document.getElementById('opUser').value.trim(),pi:document.getElementById('opPi').value.trim(),email:document.getElementById('opEmail').value.trim(),phone:old?.phone||'',institution:old?.institution||'',specimen:old?.specimen||'Operator booking',instr,date,slot,form:old?.form||'Operator entry',createdAt:old?.createdAt||new Date().toISOString()};if(editingOperatorBookingKey&&editingOperatorBookingKey!==key)delete state[editingOperatorBookingKey];save();document.getElementById('operatorBookingModal').classList.remove('show');renderAll();renderBookings();renderOperator();showToast('Admin booking saved.');}
   async function adminBookingRequest(action,booking,password=sessionStorage.getItem('em_operator_password')){
     if(!supabaseClient)throw new Error('Booking service is not available');
     const {data:{session}}=await supabaseClient.auth.getSession();
@@ -359,7 +388,7 @@
     [instrumentSelect,operatorInstrumentSelect,document.getElementById('opInstrumentEdit')].forEach((select,index)=>{
       const previous=[...select.selectedOptions].map(option=>option.value);
       const instruments=index===0?BOOKABLE_INSTRUMENTS:INSTRUMENTS;
-      select.innerHTML=instruments.map(instr=>`<option value="${instr.key}">${instr.name}${index===0?' — '+instr.sub:''}</option>`).join('');
+      select.innerHTML=instruments.map(instr=>`<option value="${instr.key}">${instr.name}</option>`).join('');
       [...select.options].forEach(option=>{option.selected=previous.includes(option.value);});
     });
     ['fSlot','opSlot','opSlotEdit'].forEach(id=>{

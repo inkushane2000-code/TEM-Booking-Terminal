@@ -7,7 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=9">
+<link rel="icon" type="image/png" href="assets/iisc-emblem.png">
+<link rel="stylesheet" href="styles.css?v=10">
 </head>
 <body>
 
@@ -49,7 +50,6 @@
   <main class="main">
 
     <div class="topbar">
-      <div class="icon-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></div>
       <div class="user-chip">
         <div class="avatar" id="userAvatar">?</div>
         <div class="user-meta">
@@ -67,7 +67,7 @@
         <h1>Electron Microscopy Facility</h1>
         <p>Advanced microscopy access for your research. Book operator-assisted sessions on the <b>Talos L120C TEM</b> and <b>Leica UC7 Ultra Microtome</b>.</p>
         <div class="hero-badges">
-          <span class="hero-badge">48-hour window</span>
+          <span class="hero-badge">Fri 12 PM – Sun 11 AM window</span>
           <span class="hero-badge">First-come booking</span>
           <span class="hero-badge">Operator-managed access</span>
         </div>
@@ -80,6 +80,7 @@
     <!-- SCHEDULE + BOOKING -->
     <div class="grid-main">
 
+      <div class="main-col">
       <div class="panel schedule-panel">
         <div class="schedule-head">
           <h2>Upcoming Week Availability</h2>
@@ -100,11 +101,23 @@
         </table>
 
         <div class="legend">
-          <div class="legend-item"><span class="legend-dot" style="background:#cdead9"></span>Available</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#9fd8b8"></span>Available</div>
           <div class="legend-item"><span class="legend-dot" style="background:var(--blue-600)"></span>Booked</div>
-          <div class="legend-item"><span class="legend-dot" style="background:var(--slate-100);border:1px solid var(--line)"></span>Maintenance</div>
-          <div class="legend-item"><span class="legend-dot" style="background:#f6d3d0"></span>Unavailable — operator already booked</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#dfe3ec;border:1px solid #c5ccdb"></span>Maintenance</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#efb4ae"></span>Unavailable — operator already booked</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#d7c2f5"></span>Reserved for Super Users</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#dfd0ef"></span>Administrative break</div>
         </div>
+      </div>
+      <div class="panel links-panel">
+        <div class="quick-links">
+          <h3>Useful Links</h3>
+          <div class="ql-item" data-go="guidelines"><div class="ql-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 4h9l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V5a1 1 0 011-1z"/><path d="M9 12h6M9 16h6"/></svg></div><div class="ql-body"><div class="ql-title">Instrument SOPs &amp; Guidelines</div><div class="ql-sub">Review procedures before your session</div></div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
+          <div class="ql-item" data-go="instruments"><div class="ql-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></div><div class="ql-body"><div class="ql-title">Sample Preparation</div><div class="ql-sub">Check specimen suitability and requirements</div></div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
+          <div class="ql-item" id="qlUserForms"><div class="ql-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3h6l4 4v12a2 2 0 01-2 2H8a2 2 0 01-2-2V5a2 2 0 012-2z"/><path d="M14 3v4h4M9 12h6M9 15.5h6"/></svg></div><div class="ql-body"><div class="ql-title">User Forms</div><div class="ql-sub">Download the signed form required for booking</div></div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
+        </div>
+        <div class="attach-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21.4 11.4l-8.5 8.5a5 5 0 01-7.1-7.1l8.5-8.5a3.5 3.5 0 015 5l-8.5 8.5a2 2 0 01-2.8-2.8l7.8-7.8"/></svg><span>Your signed User Form must be attached at booking time. No training is required; all instrument operation is performed by the facility operator.</span></div>
+      </div>
       </div>
 
       <div class="panel book-panel">
@@ -146,8 +159,9 @@
         </div>
         <div class="field">
           <label for="fSlot">Time Slots <span class="required">*</span></label>
-          <div class="select-wrap"><select id="fSlot" multiple size="6"></select></div>
-          <div class="field-hint">Select one or more slots for this date. Use a new registration for another day.</div>
+          <select id="fSlot" multiple hidden aria-hidden="true" tabindex="-1"></select>
+          <div class="slot-chips" id="slotChips" role="group" aria-label="Time slots"></div>
+          <div class="field-hint">Tap one or more slots for this date, or pick them in the schedule. Use a new registration for another day.</div>
         </div>
         <div class="field">
           <label for="fUserForm">Attach Completed User Form <span class="required">*</span></label>
@@ -162,20 +176,13 @@
         <button class="booking-service-retry" id="bookingServiceRetry" type="button" hidden>Retry connection</button>
         <button class="btn btn-primary" id="btnBook">Confirm Booking</button>
         <div class="booking-rule">Booking is immediate and first-come, first-served. Because one operator runs both instruments, <b>only one instrument can be booked per time slot</b>.</div>
-        <div class="quick-links">
-          <h3>Useful Links</h3>
-          <div class="ql-item" data-go="guidelines"><div class="ql-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 4h9l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V5a1 1 0 011-1z"/><path d="M9 12h6M9 16h6"/></svg></div><div class="ql-body"><div class="ql-title">Instrument SOPs &amp; Guidelines</div><div class="ql-sub">Review procedures before your session</div></div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
-          <div class="ql-item" data-go="instruments"><div class="ql-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></div><div class="ql-body"><div class="ql-title">Sample Preparation</div><div class="ql-sub">Check specimen suitability and requirements</div></div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
-          <div class="ql-item" id="qlUserForms"><div class="ql-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3h6l4 4v12a2 2 0 01-2 2H8a2 2 0 01-2-2V5a2 2 0 012-2z"/><path d="M14 3v4h4M9 12h6M9 15.5h6"/></svg></div><div class="ql-body"><div class="ql-title">User Forms</div><div class="ql-sub">Download the signed form required for booking</div></div><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div>
-        </div>
-        <div class="attach-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21.4 11.4l-8.5 8.5a5 5 0 01-7.1-7.1l8.5-8.5a3.5 3.5 0 015 5l-8.5 8.5a2 2 0 01-2.8-2.8l7.8-7.8"/></svg><span>Your signed User Form must be attached at booking time. No training is required; all instrument operation is performed by the facility operator.</span></div>
       </div>
 
     </div>
     </div>
 
     <div id="bookingsView" style="display:none;">
-      <div class="panel forms-hero"><h2>My Bookings</h2><p>Your confirmed sessions are listed here. You can cancel a booking before the session starts. If you miss this week's booking window, simply try again next Sunday.</p></div>
+      <div class="panel forms-hero"><h2>My Bookings</h2><p>Your confirmed sessions are listed here. You can cancel a booking before the session starts. If you miss this week's booking window, simply try again when the next window opens on Friday at 12:00 PM.</p></div>
       <div id="myBookingsList" class="booking-list"></div>
     </div>
 
@@ -190,7 +197,7 @@
     <div id="instrumentsView" style="display:none;">
       <div class="panel forms-hero">
         <h2>Instruments</h2>
-        <p>Two core instruments are available in the EM Facility. The facility operator handles instrument operation; users should arrive with samples and documentation ready for the booked session.</p>
+        <p>Six instruments are available in the EM Facility. The <b>Talos L120C</b> and <b>Leica UC7</b> can be booked online; ask the facility operator about access to the others. The operator handles instrument operation, so arrive with samples and documentation ready for the booked session.</p>
       </div>
       <div class="instruments-grid">
         <div class="instrument-card">
@@ -201,9 +208,9 @@
           <div class="instrument-card-body"><span class="instrument-kicker">Specimen preparation</span><h3>Glow Discharging Units</h3><p>The Tedpella and Quorum glow discharging units treat grids and substrates by modifying surface wettability, helping aqueous specimens spread evenly and adhere reliably before imaging.</p><ul class="instrument-specs"><li>Glow discharge treatment for TEM grids and substrates</li><li>Improves sample spreading and adhesion</li><li>Use the approved facility protocol for treatment settings</li><li>Completed signed User Form required</li></ul></div>
         </div>
         <div class="instrument-card"><div class="instrument-visual"><img class="instrument-photo" src="assets/leica-dryer.png" alt="Leica Dryer"></div><div class="instrument-card-body"><span class="instrument-kicker">Grid preparation</span><h3>Leica Dryer</h3><p>The Leica Dryer is used to dry grids after sample application, allowing liquid to evaporate in a controlled way while the specimen settles evenly on the grid.</p><ul class="instrument-specs"><li>Controlled drying of prepared microscopy grids</li><li>Supports consistent specimen deposition</li><li>Confirm drying settings with the facility operator</li></ul></div></div>
-        <div class="instrument-card"><div class="instrument-visual"><img class="instrument-photo talos-photo" src="assets/talos-l120c.png" alt="Talos L120C transmission electron microscope"></div><div class="instrument-card-body"><span class="instrument-kicker">Transmission electron microscopy</span><h3>Talos L120C</h3><p>The Talos L120C is a 120 kV transmission electron microscope for routine imaging, screening, and analytical applications.</p><ul class="instrument-specs"><li>Suitable for routine imaging and sample screening</li><li>Supports analytical microscopy workflows</li><li>Confirm specimen type and required grid/sample format before booking</li></ul></div></div>
+        <div class="instrument-card"><div class="instrument-visual"><img class="instrument-photo talos-photo" src="assets/talos-l120c.png" alt="Talos L120C transmission electron microscope"></div><div class="instrument-card-body"><span class="instrument-kicker">Transmission electron microscopy</span><span class="bookable-badge">Bookable online</span><h3>Talos L120C</h3><p>The Talos L120C is a 120 kV transmission electron microscope for routine imaging, screening, and analytical applications.</p><ul class="instrument-specs"><li>Suitable for routine imaging and sample screening</li><li>Supports analytical microscopy workflows</li><li>Confirm specimen type and required grid/sample format before booking</li></ul></div></div>
         <div class="instrument-card"><div class="instrument-visual"><img class="instrument-photo" src="assets/leica-glass-maker.png" alt="Leica Glass Maker"></div><div class="instrument-card-body"><span class="instrument-kicker">Knife preparation</span><h3>Leica Glass Maker</h3><p>The Leica Glass Maker heats and shapes glass strips to produce clean, consistent glass knives. These knives are then used for ultrathin sectioning in the ultramicrotome.</p><ul class="instrument-specs"><li>Creates glass knives for ultrathin sectioning</li><li>Supports repeatable knife preparation</li><li>Use approved glass strips and facility procedures</li></ul></div></div>
-        <div class="instrument-card"><div class="instrument-visual leica-visual"><img class="instrument-photo leica-photo" src="assets/leica-uc7.png" alt="Leica UC7 ultramicrotome"></div><div class="instrument-card-body"><span class="instrument-kicker">Precision specimen preparation</span><h3>Leica UC7 Ultramicrotome</h3><p>The Leica UC7 uses a prepared glass or diamond knife to cut resin-embedded specimens into ultrathin sections for TEM analysis.</p><ul class="instrument-specs"><li>Precision sectioning for resin-embedded specimens</li><li>Produces ultrathin sections for TEM analysis</li><li>Resin block and suitable knife must be ready</li></ul></div></div>
+        <div class="instrument-card"><div class="instrument-visual leica-visual"><img class="instrument-photo leica-photo" src="assets/leica-uc7.png" alt="Leica UC7 ultramicrotome"></div><div class="instrument-card-body"><span class="instrument-kicker">Precision specimen preparation</span><span class="bookable-badge">Bookable online</span><h3>Leica UC7 Ultramicrotome</h3><p>The Leica UC7 uses a prepared glass or diamond knife to cut resin-embedded specimens into ultrathin sections for TEM analysis.</p><ul class="instrument-specs"><li>Precision sectioning for resin-embedded specimens</li><li>Produces ultrathin sections for TEM analysis</li><li>Resin block and suitable knife must be ready</li></ul></div></div>
         <div class="instrument-card"><div class="instrument-visual"><img class="instrument-photo" src="assets/quanta-200-sem.png" alt="Quanta 200 SEM"></div><div class="instrument-card-body"><span class="instrument-kicker">Scanning electron microscopy</span><h3>Quanta 200 SEM</h3><p>The Quanta 200 SEM provides high-resolution surface imaging and elemental analysis for biological and material specimens.</p><ul class="instrument-specs"><li>Scanning electron microscopy for surface morphology</li><li>Supports imaging across multiple operating modes</li><li>Confirm specimen mounting and coating requirements</li></ul></div></div>
       </div>
     </div>
@@ -222,9 +229,9 @@
         </div>
         <div class="guideline-card">
           <div class="guideline-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 3h7l5 5v13a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z"/><path d="M14 3v5h5M9 12h6M9 16h6"/></svg></div>
-          <h3>Leica UM7 Ultramicrotome SOP</h3>
+          <h3>Leica UC7 Ultramicrotome SOP</h3>
           <p>Procedure for ultramicrotome operation, specimen trimming, knife alignment, and maintenance precautions.</p>
-          <a class="guideline-link" href="/sop_ultramicrotome_fullpage.pdf" target="_blank" rel="noopener">Download UM7 SOP PDF</a>
+          <a class="guideline-link" href="/sop_ultramicrotome_fullpage.pdf" target="_blank" rel="noopener">Download UC7 SOP PDF</a>
         </div>
 
         <div class="guideline-card"><div class="guideline-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg></div><h3>Booking Policy</h3><p>Booking opens Friday at 12:00 PM and closes Sunday at 11:00 AM for the upcoming Monday–Friday. Slots are first-come, first-served. One operator manages the facility, so one instrument booking makes the corresponding time slot unavailable on every other instrument.</p></div>
@@ -242,19 +249,19 @@
           <h3>TA Incharge</h3>
           <div class="support-item"><span class="kicker">Name</span><div class="value">Keerthana H S</div></div>
           <div class="support-item"><span class="kicker">Mail</span><div class="value"><a href="mailto:keerthana@iisc.ac.in">keerthana@iisc.ac.in</a></div></div>
-          <div class="support-item"><span class="kicker">Phone</span><div class="value">7975911869</div></div>
+          <div class="support-item"><span class="kicker">Phone</span><div class="value"><a href="tel:+917975911869">79759 11869</a></div></div>
         </div>
         <div class="support-card">
           <h3>Co-incharge</h3>
           <div class="support-item"><span class="kicker">Name</span><div class="value">Drose Ignatious Shane</div></div>
           <div class="support-item"><span class="kicker">Mail</span><div class="value"><a href="mailto:ignatiouss@iisc.ac.in">ignatiouss@iisc.ac.in</a></div></div>
-          <div class="support-item"><span class="kicker">Phone</span><div class="value">7826032427</div></div>
+          <div class="support-item"><span class="kicker">Phone</span><div class="value"><a href="tel:+917826032427">78260 32427</a></div></div>
         </div>
         <div class="support-card">
           <h3>Convenor</h3>
           <div class="support-item"><span class="kicker">Name</span><div class="value">Prof. Somnath Dutta</div></div>
           <div class="support-item"><span class="kicker">Mail</span><div class="value"><a href="mailto:somnath@iisc.ac.in">somnath@iisc.ac.in</a></div></div>
-          <div class="support-item"><span class="kicker">Phone</span><div class="value">22933453</div></div>
+          <div class="support-item"><span class="kicker">Phone</span><div class="value"><a href="tel:+918022933453">080 2293 3453</a></div></div>
         </div>
       </div>
     </div>
@@ -344,4 +351,4 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="script.js?v=13"></script>
+<script src="script.js?v=14"></script>
