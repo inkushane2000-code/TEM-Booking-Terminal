@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
 <link rel="icon" type="image/png" href="assets/iisc-emblem.png">
-<link rel="stylesheet" href="styles.css?v=13">
+<link rel="stylesheet" href="styles.css?v=14">
 </head>
 <body>
 
@@ -107,7 +107,8 @@
           <div class="legend-item"><span class="legend-dot" style="background:#dfe3ec;border:1px solid #c5ccdb"></span>Maintenance</div>
           <div class="legend-item"><span class="legend-dot" style="background:#efb4ae"></span>Unavailable — operator already booked</div>
           <div class="legend-item"><span class="legend-dot" style="background:#d7c2f5"></span>Reserved for Super Users</div>
-          <div class="legend-item"><span class="legend-dot" style="background:#dfd0ef"></span>Administrative break</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#dfd0ef"></span>Administrative break (Wed &amp; Fri 4–5 PM)</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#bfe3f2"></span>External users only (Mon &amp; Tue 4–5 PM)</div>
           <div class="legend-item"><span class="legend-dot" style="background:#ffd9a8"></span>IISc holiday</div>
         </div>
       </div>
@@ -146,8 +147,13 @@
           <input type="email" id="fEmail" placeholder="name@institution.ac.in" autocomplete="email">
         </div>
         <div class="field">
-          <label for="fInstitution">Institution / Department</label>
-          <input type="text" id="fInstitution" placeholder="e.g. IISc / Division of Biological Sciences">
+          <label for="fInstitution">Institution <span class="required">*</span></label>
+          <input type="text" id="fInstitution" placeholder="e.g. IISc, or your university / company" autocomplete="organization">
+          <div class="field-hint" id="userTypeHint">IISc users are internal. Users from any other institution are external and can also book Monday &amp; Tuesday 4:00–5:00 PM.</div>
+        </div>
+        <div class="field">
+          <label for="fDepartment">Department</label>
+          <input type="text" id="fDepartment" placeholder="e.g. Molecular Biophysics Unit (optional)">
         </div>
         <div class="field">
           <label for="fSpecimen">Type of Specimen <span class="required">*</span></label>
@@ -240,7 +246,7 @@
           <a class="guideline-link" href="sop_ultramicrotome_fullpage.pdf" target="_blank" rel="noopener">Download Ultramicrotome SOP (PDF)</a>
         </div>
 
-        <div class="guideline-card"><div class="guideline-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg></div><h3>Booking Policy</h3><p>Booking opens Friday at 12:00 PM and closes Sunday at 11:00 AM for the upcoming Monday–Friday. Slots are first-come, first-served. One operator manages the facility, so one instrument booking makes the corresponding time slot unavailable on every other instrument.</p></div>
+        <div class="guideline-card"><div class="guideline-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg></div><h3>Booking Policy</h3><p>Booking opens Friday at 12:00 PM and closes Sunday at 11:00 AM for the upcoming Monday–Friday. Slots are first-come, first-served. 9:30–10:30 AM is reserved for Super Users, 4:00–5:00 PM on Wednesday and Friday is the administrative break, and 4:00–5:00 PM on Monday and Tuesday is reserved for external (non-IISc) users. One operator manages the facility, so one instrument booking makes the corresponding time slot unavailable on every other instrument.</p></div>
         <div class="guideline-card"><div class="guideline-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M3 12h18"/></svg></div><h3>Cancellation &amp; No-show</h3><p>Cancel as early as possible so another user can use the slot. Repeated late cancellation or no-show may be reviewed by the facility. The facility operator may release or reassign slots when operational circumstances require it.</p></div>
         <div class="guideline-card"><div class="guideline-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div><h3>Booking Requirements</h3><p>Provide student/user name, PI name, phone, email, specimen type, instrument, date, slot, and the signed Internal or External User Form. There is no training requirement because instrument operation is performed by the facility operator.</p></div>      </div>
     </div>
@@ -366,4 +372,4 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="script.js?v=17"></script>
+<script src="script.js?v=18"></script>

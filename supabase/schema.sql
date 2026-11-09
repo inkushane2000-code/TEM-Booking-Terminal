@@ -556,3 +556,109 @@ create table if not exists public.app_config (
 );
 alter table public.app_config enable row level security;
 revoke all on public.app_config, public.holiday_dismissals, public.holiday_sync_log from anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Booking rules, enforced here so they hold even if the page is bypassed.
+-- Students (anonymous sessions) only; operator and service-role bookings are
+-- exempt. The page shows the same rules before submitting.
+--   * Booking window: Friday 12:00 noon to Sunday 11:00 AM IST, for the
+--     following Monday to Friday only.
+--   * Administrative break: Wednesday and Friday 4:00-5:00 PM.
+--   * Monday and Tuesday 4:00-5:00 PM: external (non-IISc) users only.
+--   * Institution is required. Internal (IISc) vs external is derived here
+--     from the institution (and an iisc.ac.in email always counts as IISc),
+--     so the page cannot claim a category; it is stored in user_category.
+-- (9:30-10:30 AM is reserved for Super Users by the insert policy above.)
+-- ---------------------------------------------------------------------------
+
+alter table public.bookings add column if not exists user_category text
+  check (user_category in ('iisc', 'external'));
+alter table public.bookings add column if not exists department text;
+
+-- "IISc", "I.I.Sc.", "IISc Bangalore", "Indian Institute of Science" -> true.
+-- IISER ("Indian Institute of Science Education and Research") -> false.
+create or replace function public.is_iisc_institution(p_text text)
+returns boolean
+language sql
+immutable
+as $$
+  with t as (
+    select trim(regexp_replace(replace(lower(coalesce(p_text, '')), '.', ''), '[^a-z]+', ' ', 'g')) as v
+  )
+  select v ~ '(^| )(iisc|iiscb|iiscbangalore|iiscbengaluru|iiscblr)( |$)'
+      or (v ~ '(^| )indian institute of science( |$)' and v !~ 'indian institute of science education')
+  from t;
+$$;
+
+-- The clock the rules use (a function so tests can simulate a booking window).
+create or replace function public.booking_clock()
+returns timestamptz
+language sql
+stable
+as $$ select now() $$;
+
+create or replace function public.enforce_booking_rules()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_now timestamp := public.booking_clock() at time zone 'Asia/Kolkata';
+  v_open timestamp;
+  v_monday date;
+  v_dow int := extract(isodow from new.session_date);
+begin
+  if nullif(trim(coalesce(new.institution, '')), '') is not null or new.email ~* '(@|\.)iisc\.ac\.in\s*$' then
+    new.user_category := case
+      when new.email ~* '(@|\.)iisc\.ac\.in\s*$' or public.is_iisc_institution(new.institution) then 'iisc'
+      else 'external' end;
+  end if;
+  if new.status <> 'confirmed'
+     or coalesce(auth.role(), '') = 'service_role' or public.is_operator() then
+    return new;
+  end if;
+  -- An existing booking that is not being moved is left alone.
+  if tg_op = 'UPDATE' and old.status = 'confirmed'
+     and new.session_date = old.session_date and new.slot = old.slot
+     and new.user_category is not distinct from old.user_category then
+    return new;
+  end if;
+
+  -- Most recent Friday 12:00 IST at or before now; the window closes Sunday 11:00.
+  v_open := date_trunc('day', v_now)
+            - make_interval(days => (extract(isodow from v_now)::int + 2) % 7)
+            + interval '12 hours';
+  if v_open > v_now then v_open := v_open - interval '7 days'; end if;
+  v_monday := (v_open + interval '3 days')::date;
+  if v_now > v_open + interval '1 day 23 hours' then
+    raise exception 'BOOKING_WINDOW: Booking is closed. The window opens on Friday at 12:00 noon and closes on Sunday at 11:00 AM.'
+      using errcode = '23514';
+  end if;
+  if new.session_date < v_monday or new.session_date > v_monday + 4 then
+    raise exception 'BOOKING_WINDOW: Only % – % can be booked in this window.',
+      to_char(v_monday, 'FMDD Mon'), to_char(v_monday + 4, 'FMDD Mon') using errcode = '23514';
+  end if;
+
+  if new.slot = 0 then
+    raise exception 'SUPER_USER_SLOT: 9:30–10:30 AM is reserved for Super Users.' using errcode = '23514';
+  end if;
+  if new.slot = 5 and v_dow in (3, 5) then
+    raise exception 'ADMIN_BREAK: 4:00–5:00 PM on % is the administrative break.',
+      to_char(new.session_date, 'FMDay') using errcode = '23514';
+  end if;
+  if nullif(trim(coalesce(new.institution, '')), '') is null then
+    raise exception 'INSTITUTION_REQUIRED: Enter your institution.' using errcode = '23514';
+  end if;
+  if new.slot = 5 and v_dow in (1, 2) and new.user_category <> 'external' then
+    raise exception 'EXTERNAL_ONLY: 4:00–5:00 PM on Monday and Tuesday is reserved for external (non-IISc) users.'
+      using errcode = '23514';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists bookings_enforce_rules on public.bookings;
+create trigger bookings_enforce_rules
+  before insert or update of session_date, slot, status, institution, email on public.bookings
+  for each row execute function public.enforce_booking_rules();

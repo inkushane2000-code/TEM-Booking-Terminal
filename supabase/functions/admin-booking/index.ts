@@ -254,8 +254,11 @@ Deno.serve(async (request) => {
     return json({ ok: true });
   }
   if (action !== "upsert" || !booking?.instrument_id || !booking?.session_date) return json({ error: "Invalid booking" }, 400);
-  const payload = { ...booking, status: "confirmed", form_path: "operator-entry", user_id: booking.user_id ?? null };
-  delete payload.id;
+  // Only booking fields; editing keeps the original owner and uploaded form.
+  const FIELDS = ["instrument_id", "session_date", "slot", "user_name", "pi_name", "email", "phone", "institution", "department", "specimen"];
+  const payload: Record<string, unknown> = { status: "confirmed" };
+  for (const k of FIELDS) if (booking[k] !== undefined) payload[k] = booking[k];
+  if (!booking.id) Object.assign(payload, { user_id: booking.user_id, form_path: "operator-entry" });
   const query = booking.id
     ? admin.from("bookings").update(payload).eq("id", booking.id).select("id,booking_code,created_at").single()
     : admin.from("bookings").insert(payload).select("id,booking_code,created_at").single();
