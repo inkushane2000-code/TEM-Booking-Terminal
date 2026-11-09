@@ -37,3 +37,14 @@ supabase secrets set ADMIN_PASSWORD='<choose-a-new-strong-password>'
 ```
 
 The function uses `SUPABASE_SERVICE_ROLE_KEY` server-side for operator Add/Edit/Delete actions and creates short-lived signed download links for users' private booking forms. The operator can download the current Monday–Friday booking week's forms as one ZIP after the booking window closes Sunday at 11:00 AM India time. Redeploy `admin-booking` after changing its code and publish the updated frontend; no database migration is needed for form downloads. Never place the service-role key in the HTML or expose it to users.
+
+## Rolling out a change to the live site
+
+The live database is in use, and the page and database rules must stay compatible. Deploy in this order:
+
+1. `supabase functions deploy admin-booking --project-ref feyaopefxbyhglbkqsch` — the function supports both old and new pages.
+2. Run only the `booked_slots()` block from `schema.sql` (additive; safe for the currently deployed page).
+3. Push to `main` and wait for Render to finish deploying; confirm the live `script.js` calls `booked_slots`.
+4. Run the full `schema.sql`. This makes booking rows private, so it must come after the new page is live — the old page reads the bookings table directly and would show every slot as free.
+
+To change the operator password: `supabase secrets set ADMIN_PASSWORD='…' --project-ref feyaopefxbyhglbkqsch`. It takes effect immediately; never commit it.
