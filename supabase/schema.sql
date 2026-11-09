@@ -484,8 +484,9 @@ grant execute on function public.pi_usage(uuid, date, date) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- IISc holidays: no student bookings on these dates. IISc publishes the list
--- once a year as a PDF (Public Relations Office); load it with
--- supabase/seed_holidays.sql or from the Operator Console.
+-- once a year as a PDF (Public Relations Office). The sync-holidays function
+-- loads it automatically every day (supabase/cron_holidays.sql); the operator
+-- can also add or remove dates in the Operator Console.
 -- Operator (service-role / operator profile) bookings are exempt.
 -- ---------------------------------------------------------------------------
 
@@ -528,3 +529,30 @@ drop trigger if exists bookings_block_holidays on public.bookings;
 create trigger bookings_block_holidays
   before insert or update of session_date, status on public.bookings
   for each row execute function public.prevent_booking_on_holiday();
+
+-- Dates the operator removed by hand; the automatic sync never re-adds them.
+create table if not exists public.holiday_dismissals (
+  holiday_date date primary key,
+  dismissed_at timestamptz not null default now()
+);
+alter table public.holiday_dismissals enable row level security;
+
+-- One row per year: what the last automatic check found (shown to the operator).
+create table if not exists public.holiday_sync_log (
+  year int primary key,
+  status text not null check (status in ('ok', 'needs_review', 'not_published', 'failed')),
+  message text not null,
+  pdf_url text,
+  checked_at timestamptz not null default now(),
+  applied_at timestamptz
+);
+alter table public.holiday_sync_log enable row level security;
+
+-- Server-only settings (e.g. the cron job's secret). RLS on with no policies:
+-- only the service role and the database itself can read it.
+create table if not exists public.app_config (
+  key text primary key,
+  value text not null
+);
+alter table public.app_config enable row level security;
+revoke all on public.app_config, public.holiday_dismissals, public.holiday_sync_log from anon, authenticated;

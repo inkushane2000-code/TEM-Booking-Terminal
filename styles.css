@@ -776,3 +776,13 @@
   .operator-grid > .operator-card:last-child{grid-column:1 / -1;}
   .pi-directory-head h3{margin-top:0;}
   .pi-directory-head p{font-size:13px;line-height:1.55;color:var(--muted);margin:6px 0 0;}
+
+/* v13: automatic holiday sync status */
+.holiday-sync{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;margin:10px 0 14px;padding:10px 12px;border:1px solid var(--line,#e2e6ee);border-radius:10px;background:var(--surface-2,#f7f9fc)}
+.holiday-sync-status{flex:1 1 260px;font-size:13px;line-height:1.5;min-width:0}
+.sync-row{margin:2px 0;overflow-wrap:anywhere}
+.sync-row.is-warn .sync-msg{color:#9a5b00}
+.sync-badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;background:#e8edf5;color:#3b4a63;margin:0 4px}
+.sync-ok,.sync-unchanged{background:#e3f4ea;color:#17663a}
+.sync-needs_review,.sync-failed{background:#fdeccf;color:#8a4b00}
+.sync-when{margin-top:4px;font-size:12px;opacity:.7}

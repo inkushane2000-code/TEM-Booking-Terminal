@@ -2,7 +2,8 @@
 -- R.PRO/(Holidays)/2026 dated 10-09-2025:
 -- https://www.iisc.ac.in/wp-content/uploads/2025/09/PRO_Holidays-2026.pdf
 -- Restricted holidays are optional per employee and are not blocked.
--- Re-run safely; add next year's list the same way when IISc publishes it.
+-- Re-run safely. Later years are loaded automatically by the sync-holidays
+-- function (see cron_holidays.sql); this file is only the initial load.
 
 insert into public.holidays (holiday_date, name, source) values
   ('2026-01-26', 'Republic Day', 'IISc PRO 2026'),

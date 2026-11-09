@@ -622,11 +622,38 @@
   async function renderHolidayAdmin(){
     const wrap=document.getElementById('holidayList');if(!wrap)return;
     const today=iso(new Date()),upcoming=Object.entries(holidays).filter(([d])=>d>=today).sort();
-    wrap.innerHTML=upcoming.length?upcoming.map(([d,name])=>`<div class="holiday-row"><span class="mono">${esc(new Date(d+'T00:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'numeric'}))}</span><span>${esc(name)}</span><button class="btn btn-secondary holiday-remove" type="button" data-date="${esc(d)}">Remove</button></div>`).join(''):'<div class="empty-state">No upcoming holidays loaded. Add them here or run supabase/seed_holidays.sql.</div>';
+    wrap.innerHTML=upcoming.length?upcoming.map(([d,name])=>`<div class="holiday-row"><span class="mono">${esc(new Date(d+'T00:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'numeric'}))}</span><span>${esc(name)}</span><button class="btn btn-secondary holiday-remove" type="button" data-date="${esc(d)}">Remove</button></div>`).join(''):'<div class="empty-state">No upcoming holidays loaded. Use “Check IISc now” or add them here.</div>';
     wrap.querySelectorAll('.holiday-remove').forEach(b=>b.onclick=()=>setHoliday(b.dataset.date,null,false));
+    loadHolidaySync();
   }
+  const SYNC_LABEL={ok:'Loaded',unchanged:'Loaded',not_published:'Not published yet',needs_review:'Needs your review',failed:'Check failed'};
+  function renderHolidaySync(log){
+    const box=document.getElementById('holidaySyncStatus');if(!box)return;
+    const year=new Date().getFullYear(),rows=[year,year+1].map(y=>log.find(r=>r.year===y)||{year:y,status:'not_published',message:y===year?'Not checked yet.':`IISc has not published the ${y} list yet.`});
+    const fmt=t=>t?new Date(t).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'never';
+    // From mid-December, a missing next-year list means January bookings are not holiday-protected.
+    const late=new Date().getMonth()===11&&new Date().getDate()>=15;
+    box.innerHTML=rows.map(r=>{
+      const warn=r.status==='needs_review'||r.status==='failed'||(r.year===year&&r.status!=='ok')||(r.year===year+1&&late&&r.status!=='ok');
+      return `<div class="sync-row${warn?' is-warn':''}"><b>${r.year}</b> <span class="sync-badge sync-${esc(r.status)}">${esc(SYNC_LABEL[r.status]||r.status)}</span> <span class="sync-msg">${esc(r.message)}${r.pdf_url?` <a href="${esc(r.pdf_url)}" target="_blank" rel="noopener">PDF</a>`:''}</span></div>`;
+    }).join('')+`<div class="sync-when">Last checked ${esc(fmt(rows.map(r=>r.checked_at).filter(Boolean).sort().pop()))} · checks daily at 07:00</div>`;
+  }
+  async function loadHolidaySync(){
+    try{const {log}=await adminBookingRequest('holiday-sync-status');renderHolidaySync(log||[]);}
+    catch(error){const box=document.getElementById('holidaySyncStatus');if(box)box.textContent='Sync status unavailable: '+(error.message||error);}
+  }
+  document.getElementById('btnSyncHolidays').onclick=async(e)=>{
+    const btn=e.currentTarget;btn.disabled=true;btn.textContent='Checking…';
+    try{
+      const {reports}=await adminBookingRequest('holiday-sync');
+      await refreshRemoteBookings();renderHolidayAdmin();
+      const bad=(reports||[]).find(r=>r.status==='needs_review'||r.status==='failed');
+      showToast(bad?bad.message:(reports||[]).map(r=>r.message).join(' '));
+    }catch(error){console.error(error);showToast(error.message||'IISc check failed.');}
+    finally{btn.disabled=false;btn.textContent='Check IISc now';}
+  };
   async function setHoliday(date,name,enabled){
-    if(!enabled&&!confirm(`Remove the holiday on ${date}? Students will be able to book that day.`))return;
+    if(!enabled&&!confirm(`Remove the holiday on ${date}? Students will be able to book that day, and the daily IISc check will not add it back.`))return;
     try{
       const result=await adminBookingRequest('holiday-set',{holiday_date:date,name,enabled});
       await refreshRemoteBookings();renderHolidayAdmin();

@@ -1,4 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { syncIiscHolidays } from "../_shared/iisc-holidays.ts";
+import { extractPdfText } from "../_shared/pdf-text.ts";
 
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
@@ -100,16 +102,29 @@ Deno.serve(async (request) => {
     if (!booking.enabled) {
       const { error } = await admin.from("holidays").delete().eq("holiday_date", booking.holiday_date);
       if (error) return json({ error: error.message }, 400);
+      // Remember the removal so the daily IISc sync does not add the date back.
+      await admin.from("holiday_dismissals").upsert({ holiday_date: booking.holiday_date }, { onConflict: "holiday_date" });
       return json({ ok: true });
     }
     const name = typeof booking?.name === "string" ? booking.name.trim() : "";
     if (!name) return json({ error: "Holiday name is required" }, 400);
     const { error } = await admin.from("holidays").upsert({ holiday_date: booking.holiday_date, name, source: "operator" }, { onConflict: "holiday_date" });
     if (error) return json({ error: error.message }, 400);
+    await admin.from("holiday_dismissals").delete().eq("holiday_date", booking.holiday_date);
     // Existing bookings are kept; report them so the operator can follow up.
     const { count } = await admin.from("bookings").select("id", { count: "exact", head: true })
       .eq("status", "confirmed").eq("session_date", booking.holiday_date);
     return json({ ok: true, existingBookings: count || 0 });
+  }
+  if (action === "holiday-sync") {
+    // "Check IISc now" in the Operator Console: re-read the PDFs even if unchanged.
+    const reports = await syncIiscHolidays({ db: admin, extractPdfText, force: true });
+    return json({ reports });
+  }
+  if (action === "holiday-sync-status") {
+    const { data, error } = await admin.from("holiday_sync_log").select("*").order("year");
+    if (error) return json({ error: error.message }, 400);
+    return json({ log: data || [] });
   }
   if (action === "maintenance-set") {
     const sessionDate = parseISODate(booking?.session_date);
