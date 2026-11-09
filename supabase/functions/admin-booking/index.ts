@@ -16,8 +16,12 @@ function dateString(date: Date): string {
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (request.method !== "POST") return json({ error: "POST required" }, 405);
-  const { action, password, booking } = await request.json();
-  if (password !== Deno.env.get("ADMIN_PASSWORD")) return json({ error: "Unauthorized" }, 401);
+  const { action, password, booking } = await request.json().catch(() => ({}));
+  const adminPassword = Deno.env.get("ADMIN_PASSWORD");
+  // Fail closed: if the secret is missing, a request without a password must not match `undefined`.
+  if (!adminPassword) return json({ error: "ADMIN_PASSWORD secret is not configured" }, 500);
+  if (typeof password !== "string" || password !== adminPassword) return json({ error: "Unauthorized" }, 401);
+  if (action === "verify") return json({ ok: true });
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   if (action === "bulk-download-forms") {
     const startDate = parseISODate(booking?.start_date);

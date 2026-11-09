@@ -240,7 +240,8 @@
   function renderOperator(){const wrap=document.getElementById('operatorBookings');if(!wrap)return;const rows=Object.entries(state).filter(([,r])=>r.status==='booked').sort((a,b)=>a[1].date.localeCompare(b[1].date)||a[1].slot-b[1].slot);wrap.innerHTML=rows.length?rows.map(([key,r])=>`<div class="operator-row"><b>${r.id}</b><span>${r.date} · ${SLOT_LABELS[r.slot]}</span><span>${instrumentName(r.instr)}</span><span>${r.user} / ${r.pi}</span>${r.formPath&&r.formPath!=='operator-entry'?`<button class="btn btn-secondary operator-form-download" data-key="${key}">Download Form</button>`:'<span class="operator-form-missing">No uploaded form</span>'}<button class="btn btn-secondary operator-edit" data-key="${key}">Edit</button><button class="btn btn-secondary operator-delete" data-key="${key}">Delete</button></div>`).join(''):'<div class="empty-state">No bookings in this browser.</div>';wrap.querySelectorAll('.operator-form-download').forEach(b=>b.onclick=()=>downloadBookingForm(b.dataset.key));wrap.querySelectorAll('.operator-edit').forEach(b=>b.onclick=()=>openOperatorBooking(b.dataset.key));wrap.querySelectorAll('.operator-delete').forEach(b=>b.onclick=()=>deleteOperatorBooking(b.dataset.key));const bulkButton=document.getElementById('btnBulkExportForms');if(bulkButton){bulkButton.disabled=bookingWindow().active;bulkButton.title=bulkButton.disabled?'Available after the booking window closes Sunday at 11:00 AM':'';}}
   function openOperatorBooking(key=null){editingOperatorBookingKey=key;const r=key?state[key]:null;document.getElementById('operatorBookingTitle').textContent=r?'Edit Booking':'Add Booking';document.getElementById('opUser').value=r?.user||'';document.getElementById('opPi').value=r?.pi||'';document.getElementById('opEmail').value=r?.email||'';document.getElementById('opDateEdit').value=r?.date||iso(weekStart);document.getElementById('opSlotEdit').value=String(r?.slot??0);document.getElementById('opInstrumentEdit').value=r?.instr||'TEM';document.getElementById('operatorBookingModal').classList.add('show');}
   function saveOperatorBooking(){const date=document.getElementById('opDateEdit').value,slot=Number(document.getElementById('opSlotEdit').value),instr=document.getElementById('opInstrumentEdit').value;if(!date||!document.getElementById('opUser').value.trim()||!document.getElementById('opPi').value.trim()||!document.getElementById('opEmail').value.trim()){showToast('Complete the booking details first.');return;}const key=keyFor(instr,date,slot),existing=state[key];if(existing?.status==='booked'&&key!==editingOperatorBookingKey){showToast('That instrument slot is already booked.');return;}const old=editingOperatorBookingKey?state[editingOperatorBookingKey]:null;state[key]={status:'booked',id:old?.id||'EM-'+new Date().getFullYear()+'-'+Math.random().toString(36).slice(2,8).toUpperCase(),user:document.getElementById('opUser').value.trim(),pi:document.getElementById('opPi').value.trim(),email:document.getElementById('opEmail').value.trim(),phone:old?.phone||'',institution:old?.institution||'',specimen:old?.specimen||'Operator booking',instr,date,slot,form:old?.form||'Operator entry',createdAt:old?.createdAt||new Date().toISOString()};if(editingOperatorBookingKey&&editingOperatorBookingKey!==key)delete state[editingOperatorBookingKey];save();document.getElementById('operatorBookingModal').classList.remove('show');renderAll();renderBookings();renderOperator();showToast('Admin booking saved.');}
-  async function adminBookingRequest(action,booking){
+  async function adminBookingRequest(action,booking,password=sessionStorage.getItem('em_operator_password')){
+    if(!supabaseClient)throw new Error('Booking service is not available');
     const {data:{session}}=await supabaseClient.auth.getSession();
     if(!session?.access_token)throw new Error('Supabase session is not ready');
     const response=await fetch(SUPABASE_URL+'/functions/v1/admin-booking',{
@@ -250,9 +251,14 @@
         apikey:SUPABASE_PUBLISHABLE_KEY,
         Authorization:`Bearer ${session.access_token}`
       },
-      body:JSON.stringify({action,password:sessionStorage.getItem('em_operator_password'),booking})
+      body:JSON.stringify({action,password,booking})
     });
     const result=await response.json().catch(()=>({}));
+    if(response.status===401){
+      sessionStorage.removeItem('em_operator_unlocked');
+      sessionStorage.removeItem('em_operator_password');
+      const error=new Error('Incorrect Operator Console password.');error.status=401;throw error;
+    }
     if(!response.ok)throw new Error(result.error||`Admin booking request failed (${response.status})`);
     return result;
   }
@@ -341,18 +347,25 @@
     document.getElementById('adminPassword').focus();
     return false;
   }
-  function unlockOperator(){
-    const input=document.getElementById('adminPassword');
-    if(input.value==='EM_GC-04'){
+  // The password is checked by the admin-booking Edge Function; it is never stored in this file.
+  async function unlockOperator(){
+    const input=document.getElementById('adminPassword'),button=document.getElementById('adminUnlock'),password=input.value;
+    if(!password){input.focus();return;}
+    if(!remoteReady){showToast('Booking service is not connected yet. Please try again in a moment.');return;}
+    button.disabled=true;
+    try{
+      await adminBookingRequest('verify',null,password);
       sessionStorage.setItem('em_operator_unlocked','true');
-      sessionStorage.setItem('em_operator_password',input.value);
+      sessionStorage.setItem('em_operator_password',password);
       input.value='';
       document.getElementById('adminLockModal').classList.remove('show');
       switchView('operator');
-    } else {
+    }catch(error){
       input.value='';
-      showToast('Incorrect Operator Console password.');
+      showToast(error.status===401?'Incorrect Operator Console password.':(error.message||'Could not verify the password.'));
       input.focus();
+    }finally{
+      button.disabled=false;
     }
   }
 

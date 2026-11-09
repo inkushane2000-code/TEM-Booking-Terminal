@@ -32,7 +32,7 @@ Deploy the operator function with the Supabase CLI:
 
 ```sh
 supabase functions deploy admin-booking
-supabase secrets set ADMIN_PASSWORD='EM_GC-04'
+supabase secrets set ADMIN_PASSWORD='<choose-a-new-strong-password>'
 ```
 
 The function uses `SUPABASE_SERVICE_ROLE_KEY` server-side for operator Add/Edit/Delete actions and creates short-lived signed download links for users' private booking forms. The operator can download the current Monday–Friday booking week's forms as one ZIP after the booking window closes Sunday at 11:00 AM India time. Redeploy `admin-booking` after changing its code and publish the updated frontend; no database migration is needed for form downloads. Never place the service-role key in the HTML or expose it to users.
