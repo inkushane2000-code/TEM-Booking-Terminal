@@ -123,12 +123,32 @@ create policy "Users can update their own profile"
   using (id = auth.uid())
   with check (id = auth.uid());
 
-drop policy if exists "Users can view their own bookings" on public.bookings;
+-- Full booking rows (phone, email, PI, specimen, form path) are private:
+-- a session can read only its own bookings. Operators read everything
+-- through the admin-booking Edge Function.
 drop policy if exists "Users can view confirmed bookings" on public.bookings;
-create policy "Users can view confirmed bookings"
+drop policy if exists "Users can view their own bookings" on public.bookings;
+create policy "Users can view their own bookings"
   on public.bookings for select
   to authenticated
-  using (status = 'confirmed' or user_id = auth.uid() or public.is_operator());
+  using (user_id = auth.uid() or public.is_operator());
+
+-- The public schedule only needs to know which slots are taken, so it
+-- reads this narrow projection instead of the bookings table.
+create or replace function public.booked_slots()
+returns table (id uuid, instrument_id text, session_date date, slot smallint, user_name text)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select b.id, b.instrument_id, b.session_date, b.slot, b.user_name
+  from public.bookings b
+  where b.status = 'confirmed'
+    and b.session_date >= current_date - 14;
+$$;
+revoke all on function public.booked_slots() from public, anon;
+grant execute on function public.booked_slots() to authenticated;
 
 drop policy if exists "Users can create their own bookings" on public.bookings;
 create policy "Users can create their own bookings"

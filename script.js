@@ -73,14 +73,30 @@
     Object.keys(state).forEach(key=>{
       if(state[key].remoteId&&!remoteKeys.has(state[key].remoteId))delete state[key];
     });
-    rows.forEach(r=>{state[keyFor(r.instrument_id,r.session_date,r.slot)]={status:'booked',id:r.booking_code,user:r.user_name,pi:r.pi_name,phone:r.phone,email:r.email,institution:r.institution,specimen:r.specimen,instr:r.instrument_id,date:r.session_date,slot:r.slot,form:r.form_path.split('/').pop(),formPath:r.form_path,createdAt:r.created_at,remoteId:r.id};});
+    rows.forEach(r=>{state[keyFor(r.instrument_id,r.session_date,r.slot)]={status:'booked',id:r.booking_code||'Booked',user:r.user_name,pi:r.pi_name,phone:r.phone,email:r.email,institution:r.institution,specimen:r.specimen,instr:r.instrument_id,date:r.session_date,slot:r.slot,form:r.form_path?.split('/').pop(),formPath:r.form_path,createdAt:r.created_at,remoteId:r.id};});
     save();
   }
+  // Public schedule rows carry no contact details; the session's own bookings
+  // and (for an unlocked operator) the admin list fill in full rows by id.
   async function refreshRemoteBookings(){
     if(!supabaseClient||!remoteReady)return;
-    const {data:rows,error}=await supabaseClient.from('bookings').select('*').eq('status','confirmed');
-    if(error)throw error;
-    applyRemoteRows(rows||[]);
+    const [slots,own]=await Promise.all([
+      supabaseClient.rpc('booked_slots'),
+      supabaseClient.from('bookings').select('*').eq('status','confirmed')
+    ]);
+    if(slots.error)throw slots.error;
+    if(own.error)throw own.error;
+    const byId=new Map();
+    [...(slots.data||[]),...(own.data||[])].forEach(r=>byId.set(r.id,{...byId.get(r.id),...r}));
+    if(sessionStorage.getItem('em_operator_unlocked')==='true'){
+      try{
+        const {bookings}=await adminBookingRequest('list');
+        (bookings||[]).forEach(r=>byId.set(r.id,{...byId.get(r.id),...r}));
+      }catch(error){
+        console.error('Operator booking list failed',error);
+      }
+    }
+    applyRemoteRows([...byId.values()]);
     renderAll();
     renderBookings();
     renderOperator();
@@ -117,7 +133,7 @@
     console.error('Supabase connection failed; retrying automatically.',error);
     const statusCode=Number(error?.status);
     const anonymousSignInDisabled=error?.message==='Anonymous sign-ins are disabled';
-    const missingBookingSchema=error?.code==='PGRST205'&&/public\.bookings/.test(error?.message||'');
+    const missingBookingSchema=(error?.code==='PGRST205'&&/public\.bookings/.test(error?.message||''))||(error?.code==='PGRST202'&&/booked_slots/.test(error?.message||''));
     const setupError=anonymousSignInDisabled||missingBookingSchema||(statusCode>=400&&statusCode<500&&statusCode!==408&&statusCode!==429);
     const message=anonymousSignInDisabled
       ?'Enable Anonymous Sign-Ins in Supabase Dashboard → Authentication → Providers, then retry the connection.'
@@ -360,6 +376,7 @@
       input.value='';
       document.getElementById('adminLockModal').classList.remove('show');
       switchView('operator');
+      refreshRemoteBookings().catch(error=>console.error('Operator booking refresh failed',error));
     }catch(error){
       input.value='';
       showToast(error.status===401?'Incorrect Operator Console password.':(error.message||'Could not verify the password.'));

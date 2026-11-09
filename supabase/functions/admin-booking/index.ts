@@ -23,6 +23,16 @@ Deno.serve(async (request) => {
   if (typeof password !== "string" || password !== adminPassword) return json({ error: "Unauthorized" }, 401);
   if (action === "verify") return json({ ok: true });
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  if (action === "list") {
+    const { data, error } = await admin
+      .from("bookings")
+      .select("*")
+      .eq("status", "confirmed")
+      .order("session_date")
+      .order("slot");
+    if (error) return json({ error: error.message }, 400);
+    return json({ bookings: data || [] });
+  }
   if (action === "bulk-download-forms") {
     const startDate = parseISODate(booking?.start_date);
     const endDate = parseISODate(booking?.end_date);

@@ -22,11 +22,11 @@ This folder contains the initial backend setup for the EM Facility booking page.
 signed-forms/<authenticated-user-uuid>/<booking-id>.pdf
 ```
 
-- The frontend reuses an existing anonymous Supabase session when available, loads all confirmed bookings, uploads signed forms, and inserts bookings into Supabase. If startup or a network request fails, it retries with backoff and reconnects when the browser comes back online. Booking stays disabled until the remote database is reachable; a new booking is never presented as confirmed based only on local storage. Confirmed bookings are readable by authenticated anonymous sessions so every page can show occupied slots. Realtime updates plus a 15-second polling fallback keep open pages synchronized. Local storage remains as a browser cache.
+- The frontend reuses an existing anonymous Supabase session when available, loads all confirmed bookings, uploads signed forms, and inserts bookings into Supabase. If startup or a network request fails, it retries with backoff and reconnects when the browser comes back online. Booking stays disabled until the remote database is reachable; a new booking is never presented as confirmed based only on local storage. Full booking rows (phone, email, PI, specimen, form path) are readable only by the session that created them; every page learns which slots are taken through the `booked_slots()` function, which returns only instrument, date, slot and user name. The unlocked Operator Console loads full rows through the `admin-booking` function's `list` action. Because Realtime respects row-level security, other users' new bookings reach an open page through the 15-second polling fallback rather than instantly. Local storage remains as a browser cache.
 - For production, replace anonymous sessions with email/password or institution SSO before launch.
 # Supabase setup
 
-Run [`schema.sql`](./schema.sql) in the Supabase SQL Editor. If the database was already initialized, run the file again so the global booking read policy, Realtime publication, and all seven instruments are applied.
+Run [`schema.sql`](./schema.sql) in the Supabase SQL Editor. If the database was already initialized, run the file again so the private booking read policy, the `booked_slots()` function, the Realtime publication, and all seven instruments are applied.
 
 Deploy the operator function with the Supabase CLI:
 
