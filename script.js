@@ -664,7 +664,7 @@
     box.innerHTML=rows.map(r=>{
       const warn=r.status==='needs_review'||r.status==='failed'||(r.year===year&&r.status!=='ok')||(r.year===year+1&&late&&r.status!=='ok');
       return `<div class="sync-row${warn?' is-warn':''}"><b>${r.year}</b> <span class="sync-badge sync-${esc(r.status)}">${esc(SYNC_LABEL[r.status]||r.status)}</span> <span class="sync-msg">${esc(r.message)}${r.pdf_url?` <a href="${esc(r.pdf_url)}" target="_blank" rel="noopener">PDF</a>`:''}</span></div>`;
-    }).join('')+`<div class="sync-when">Last checked ${esc(fmt(rows.map(r=>r.checked_at).filter(Boolean).sort().pop()))} · checks daily at 07:00</div>`;
+    }).join('')+`<div class="sync-when">Last checked ${esc(fmt(rows.map(r=>r.checked_at).filter(Boolean).sort().pop()))} · checks twice a day (07:00 and 19:00)</div>`;
   }
   async function loadHolidaySync(){
     try{const {log}=await adminBookingRequest('holiday-sync-status');renderHolidaySync(log||[]);}

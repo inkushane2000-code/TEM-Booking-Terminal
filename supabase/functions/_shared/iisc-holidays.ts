@@ -153,14 +153,20 @@ export const sourceFor = (year: number) => `IISc PRO ${year}`;
 
 const UA = { "User-Agent": "Mozilla/5.0 (compatible; EM-Facility-Booking/1.0; holiday sync)" };
 
-/** iisc.ac.in occasionally drops HTTP/2 streams; retry network errors twice. */
+/**
+ * iisc.ac.in is slow and sometimes answers 502/503/504 or drops HTTP/2 streams.
+ * Up to 3 attempts, 20 s each, retrying network errors and server errors.
+ */
+export const RETRY_WAIT_MS = { value: 4000 };
 async function fetchRetry(fetchImpl: typeof fetch, url: string): Promise<Response> {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await fetchImpl(url, { headers: UA });
+      const res = await fetchImpl(url, { headers: UA, signal: AbortSignal.timeout(20_000) });
+      if ((res.status >= 500 || res.status === 429) && attempt < 3) throw new Error(`HTTP ${res.status}`);
+      return res;
     } catch (error) {
       if (attempt >= 3) throw error;
-      await new Promise((r) => setTimeout(r, 1500 * attempt));
+      await new Promise((r) => setTimeout(r, RETRY_WAIT_MS.value * attempt));
     }
   }
 }
