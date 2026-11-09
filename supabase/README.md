@@ -46,5 +46,13 @@ The live database is in use, and the page and database rules must stay compatibl
 2. Run only the `booked_slots()` block from `schema.sql` (additive; safe for the currently deployed page).
 3. Push to `main` and wait for Render to finish deploying; confirm the live `script.js` calls `booked_slots`.
 4. Run the full `schema.sql`. This makes booking rows private, so it must come after the new page is live — the old page reads the bookings table directly and would show every slot as free.
+5. Run `seed_pis.sql` (known PIs, the "SD" spelling, and linking of existing bookings to the PI directory), then `seed_holidays.sql` (IISc 2026 holidays). Both are safe to re-run.
+
+## PI limits, holidays and maintenance
+
+- **PI limits:** a PI may hold at most 3 confirmed slots per day and 5 per Monday–Sunday week, across all students and instruments. The `bookings_assign_pi` trigger matches the typed PI name to `pis` (ignoring titles, punctuation and word order; partial names and initials match, e.g. "dr. somnath", "S. Dutta"), stores the directory spelling, and rejects bookings over the limit. Unmatched names are added as `new` PIs; ambiguous names are rejected so the student picks from the list. Operator bookings are exempt. Manage PIs, spellings and merges in the Operator Console.
+- **Holidays:** `holidays` blocks student bookings on IISc declared holidays (`bookings_block_holidays`). IISc publishes the list each year only as a PDF from the Public Relations Office, so add each new year to `seed_holidays.sql` or through the Operator Console. Restricted (optional) holidays are not blocked. Operator bookings are exempt.
+- **Maintenance:** `maintenance_slots` blocks a date and slot on every instrument for everyone, including the operator.
+
 
 To change the operator password: `supabase secrets set ADMIN_PASSWORD='…' --project-ref feyaopefxbyhglbkqsch`. It takes effect immediately; never commit it.

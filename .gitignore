@@ -1,0 +1,3 @@
+supabase/.temp/
+# Local preview copy; the Dockerfile generates index.html at build time.
+/index.html

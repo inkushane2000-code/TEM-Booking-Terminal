@@ -58,7 +58,9 @@
   function keyFor(instr,dateISO,slot){return instr+'|'+dateISO+'|'+slot;}
   function otherInstrument(k){return INSTRUMENTS.find(x=>x.key!==k)?.key||k;}
   function instrumentName(k){return INSTRUMENTS.find(x=>x.key===k)?.name||k;}
+  let holidays={}; // ISO date -> holiday name (IISc list, from Supabase)
   function effectiveStatus(instr,dateISO,slot){
+    if(holidays[dateISO]&&state[keyFor(instr,dateISO,slot)]?.status!=='booked')return {status:'holiday',name:holidays[dateISO]};
     const maintenance=Object.values(state).find(r=>r.status==='maintenance'&&r.date===dateISO&&r.slot===slot);
     if(maintenance)return maintenance;
     const own=state[keyFor(instr,dateISO,slot)];
@@ -94,11 +96,15 @@
   // and (for an unlocked operator) the admin list fill in full rows by id.
   async function refreshRemoteBookings(){
     if(!supabaseClient||!remoteReady)return;
-    const [slots,own,maintenance]=await Promise.all([
+    const [slots,own,maintenance,holidayRows]=await Promise.all([
       supabaseClient.rpc('booked_slots'),
       supabaseClient.from('bookings').select('*').eq('status','confirmed'),
-      supabaseClient.from('maintenance_slots').select('instrument_id,session_date,slot')
+      supabaseClient.from('maintenance_slots').select('instrument_id,session_date,slot'),
+      supabaseClient.from('holidays').select('holiday_date,name').gte('holiday_date',iso(addDays(new Date(),-14)))
     ]);
+    // Holidays are optional until the table exists, so an older database keeps working.
+    if(!holidayRows.error)holidays=Object.fromEntries((holidayRows.data||[]).map(h=>[h.holiday_date,h.name]));
+    else console.warn('Holiday list unavailable',holidayRows.error);
     if(slots.error)throw slots.error;
     if(own.error)throw own.error;
     if(maintenance.error)throw maintenance.error;
@@ -114,6 +120,7 @@
     }
     applyRemoteRows([...byId.values()]);
     applyRemoteMaintenance(maintenance.data||[]);
+    refreshPiUsage();
     renderAll();
     renderBookings();
     renderOperator();
@@ -180,6 +187,8 @@
         remoteRetryAttempt=0;
         if(remoteRetryTimer){clearTimeout(remoteRetryTimer);remoteRetryTimer=null;}
         setBookingServiceStatus('Booking service connected. Your booking will be saved securely.','connected');
+        loadPiDirectory();lookupPi();
+        if(document.getElementById('operatorView').style.display==='block'){loadPiAdmin();renderHolidayAdmin();}
         renderAll();
         renderOperator();
       }catch(error){
@@ -218,7 +227,7 @@
   };}
   function validForm(f){return f.user&&f.pi&&f.phone.replace(/\D/g,'').length>=10&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)&&f.specimen;}
   function isBookingWindowOpen(){return bookingWindow().active;}
-  function statusLabel(s){return {available:['Available','slot-available'],booked:['Booked','slot-booked'],mine:['My Booking','slot-mine'],maintenance:['Maintenance','slot-maintenance'],administrative:['Administrative Break','slot-administrative'],restricted:['Unavailable','slot-restricted'],reserved:['Reserved','slot-reserved']}[s]||['Unavailable','slot-restricted'];}
+  function statusLabel(s){return {holiday:['IISc holiday','slot-holiday'],available:['Available','slot-available'],booked:['Booked','slot-booked'],mine:['My Booking','slot-mine'],maintenance:['Maintenance','slot-maintenance'],administrative:['Administrative Break','slot-administrative'],restricted:['Unavailable','slot-restricted'],reserved:['Reserved','slot-reserved']}[s]||['Unavailable','slot-restricted'];}
 
   function renderWindow(){
     const b=bookingWindow(), el=document.getElementById('windowBanner');
@@ -237,28 +246,89 @@
     wrap.setAttribute('aria-label',`${b.active?'Window closes':'Window opens'} in ${parts.map(([v,l])=>v+' '+l.toLowerCase()).join(' ')}`);
     wrap.innerHTML=parts.map(([v,l])=>`<div><b>${String(v).padStart(2,'0')}</b><span>${l}</span></div>`).join('');
   }
-  function renderDayTabs(){const w=document.getElementById('dayTabs');w.innerHTML='';for(let i=0;i<WEEK_LEN;i++){const d=addDays(weekStart,i),t=document.createElement('button');t.type='button';t.className='day-tab'+(i===selectedDayIdx?' active':'');t.innerHTML=`<div class="dname">${DAY_NAMES[d.getDay()]}</div><div class="dnum">${pad(d.getDate())}</div>`;t.onclick=()=>{selectedDayIdx=i;renderAll();};w.appendChild(t);}}
-  function renderDateOptions(){const s=document.getElementById('fDate'),prev=s.value;s.innerHTML='';for(let i=0;i<WEEK_LEN;i++){const d=addDays(weekStart,i),o=document.createElement('option');o.value=iso(d);o.textContent=`${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} (${d.toLocaleDateString('en-US',{weekday:'long'})})`;s.appendChild(o);}const active=iso(addDays(weekStart,selectedDayIdx));s.value=[...s.options].some(o=>o.value===prev)?prev:active;}
+  function renderDayTabs(){const w=document.getElementById('dayTabs');w.innerHTML='';for(let i=0;i<WEEK_LEN;i++){const d=addDays(weekStart,i),t=document.createElement('button');t.type='button';t.className='day-tab'+(i===selectedDayIdx?' active':'');const hol=holidays[iso(d)];if(hol){t.classList.add('is-holiday');t.title='IISc holiday: '+hol;}t.innerHTML=`<div class="dname">${DAY_NAMES[d.getDay()]}</div><div class="dnum">${pad(d.getDate())}</div>${hol?'<div class="dhol">Holiday</div>':''}`;t.onclick=()=>{selectedDayIdx=i;const date=document.getElementById('fDate');if(date.value!==iso(d)){date.value=iso(d);[...document.getElementById('fSlot').options].forEach(o=>o.selected=false);}renderAll();};w.appendChild(t);}}
+  function renderDateOptions(){const s=document.getElementById('fDate'),prev=s.value;s.innerHTML='';for(let i=0;i<WEEK_LEN;i++){const d=addDays(weekStart,i),o=document.createElement('option');o.value=iso(d);o.textContent=`${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} (${d.toLocaleDateString('en-US',{weekday:'long'})})${holidays[iso(d)]?' — IISc holiday':''}`;s.appendChild(o);}const active=iso(addDays(weekStart,selectedDayIdx));s.value=[...s.options].some(o=>o.value===prev)?prev:active;}
   function renderSchedule(){
     const body=document.getElementById('schedBody');body.innerHTML='';const d=addDays(weekStart,selectedDayIdx),dISO=iso(d);
+    const banner=document.getElementById('holidayBanner');if(banner){banner.hidden=!holidays[dISO];banner.innerHTML=holidays[dISO]?`<b>${esc(d.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}))} is an IISc holiday — ${esc(holidays[dISO])}.</b> The facility is closed and slots can't be booked.`:'';}
     for(let slot=0;slot<SLOT_LABELS.length;slot++){const tr=document.createElement('tr'),time=document.createElement('td');time.className='timecol';time.textContent=SLOT_LABELS[slot].replace(' – ','–');tr.appendChild(time);
       DASHBOARD_INSTRUMENTS.forEach(instr=>{const td=document.createElement('td'),rec=effectiveStatus(instr.key,dISO,slot),[txt,cls]=statusLabel(rec.status),div=document.createElement('div');div.className='slot '+cls;
         const selectedSlots=getForm().slots,selected=document.getElementById('fInstrument').value===instr.key&&selectedDate()===dISO&&selectedSlots.includes(slot);if(selected)div.classList.add('slot-selected');
         if(rec.status==='booked')div.innerHTML='<div>Booked</div><div class="stime">'+esc(rec.user||'Reserved')+'</div>';
         else if(rec.status==='reserved')div.innerHTML='<div>Reserved for Super Users</div>';
         else if(rec.status==='restricted')div.innerHTML='<div>Unavailable</div><div class="stime">'+instrumentName(rec.by)+' booked</div>';
+        else if(rec.status==='holiday')div.innerHTML='<div>IISc holiday</div><div class="stime">'+esc(rec.name)+'</div>';
         else if(rec.status==='maintenance')div.innerHTML='<div>Maintenance</div><div class="stime">Facility hold</div>';
         else if(rec.status==='administrative')div.innerHTML='<div>Administrative Break</div><div class="stime">Booking unavailable</div>';
         else div.innerHTML='<div>'+txt+'</div>';
         if(rec.status==='available'&&isBookingWindowOpen())div.onclick=()=>{document.getElementById('fInstrument').value=instr.key;document.getElementById('fDate').value=dISO;const slotOption=document.getElementById('fSlot').options[slot];slotOption.selected=!slotOption.selected;renderAll();};
         td.appendChild(div);tr.appendChild(td);});body.appendChild(tr);}
   }
+  // ---- PI directory and per-PI limits (enforced in the database; mirrored here for feedback) ----
+  const PI_DAY_MAX=3,PI_WEEK_MAX=5;
+  let piState={status:'empty',pi:null,candidates:[],usage:{}},piTimer=null,piSeq=0;
+  function cleanDbError(message){return String(message||'').replace(/^PI_[A-Z_]+:\s*/,'');}
+  async function loadPiDirectory(){
+    if(!remoteReady)return;
+    const {data,error}=await supabaseClient.from('pis').select('id,name').order('name');
+    if(error){console.error('PI list failed',error);return;}
+    document.getElementById('piOptions').innerHTML=(data||[]).map(pi=>`<option value="${esc(pi.name)}"></option>`).join('');
+  }
+  async function fetchPiUsage(piId){
+    const {data,error}=await supabaseClient.rpc('pi_usage',{p_pi:piId,p_from:iso(weekStart),p_to:iso(addDays(weekStart,6))});
+    if(error)throw error;
+    return Object.fromEntries((data||[]).map(r=>[r.session_date,r.used]));
+  }
+  function schedulePiLookup(){clearTimeout(piTimer);piTimer=setTimeout(lookupPi,300);}
+  async function lookupPi(){
+    const name=document.getElementById('fPiName').value.trim(),seq=++piSeq;
+    if(!name){piState={status:'empty',pi:null,candidates:[],usage:{}};renderPiMatch();renderStatus();return;}
+    if(!remoteReady){piState={status:'offline',pi:null,candidates:[],usage:{}};renderPiMatch();renderStatus();return;}
+    piState={...piState,status:'loading'};renderPiMatch();renderStatus();
+    try{
+      const {data,error}=await supabaseClient.rpc('resolve_pi',{p_name:name});
+      if(error)throw error;
+      if(seq!==piSeq)return;
+      if(data.length===1){const usage=await fetchPiUsage(data[0].id);if(seq!==piSeq)return;piState={status:'match',pi:data[0],candidates:[],usage};}
+      else if(data.length>1)piState={status:'ambiguous',pi:null,candidates:data,usage:{}};
+      else piState={status:'new',pi:null,candidates:[],usage:{}};
+    }catch(error){
+      console.error('PI lookup failed',error);
+      if(seq!==piSeq)return;
+      piState={status:'error',pi:null,candidates:[],usage:{}};
+    }
+    renderPiMatch();renderStatus();
+  }
+  async function refreshPiUsage(){
+    if(piState.status!=='match')return;
+    try{piState={...piState,usage:await fetchPiUsage(piState.pi.id)};renderPiMatch();renderStatus();}catch(error){console.error('PI usage refresh failed',error);}
+  }
+  function piQuota(date){
+    const usage=piState.usage||{},dayUsed=usage[date]||0,weekUsed=Object.values(usage).reduce((a,b)=>a+b,0);
+    return {dayUsed,weekUsed,left:Math.max(0,Math.min(PI_DAY_MAX-dayUsed,PI_WEEK_MAX-weekUsed)),dayFull:dayUsed>=PI_DAY_MAX,weekFull:weekUsed>=PI_WEEK_MAX};
+  }
+  function renderPiMatch(){
+    const el=document.getElementById('piMatch');if(!el)return;
+    const st=piState.status;el.className='pi-match pi-'+st;
+    if(st==='match'){
+      const q=piQuota(selectedDate()),day=new Date(selectedDate()+'T00:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+      el.innerHTML=`<span class="pi-name">✓ ${esc(piState.pi.name)}</span>${piState.pi.status==='new'?' <span class="pi-new">new · pending facility review</span>':''}<span class="pi-usage"><b>${q.dayUsed}/${PI_DAY_MAX}</b> slots on ${esc(day)} · <b>${q.weekUsed}/${PI_WEEK_MAX}</b> this week</span>`;
+    }else if(st==='new'){
+      el.innerHTML='New PI — this name will be added to the facility’s PI list. Check the spelling, or pick your PI from the suggestions.';
+    }else if(st==='ambiguous'){
+      el.innerHTML='More than one PI matches. Choose yours: '+piState.candidates.map(c=>`<button type="button" class="pi-choice" data-name="${esc(c.name)}">${esc(c.name)}</button>`).join(' ');
+      el.querySelectorAll('.pi-choice').forEach(b=>b.onclick=()=>{const input=document.getElementById('fPiName');input.value=b.dataset.name;input.dispatchEvent(new Event('input'));lookupPi();});
+    }else if(st==='loading'){el.textContent='Checking PI…';}
+    else if(st==='error'){el.textContent='Could not check the PI right now; limits will still be checked when you book.';}
+    else el.textContent='';
+  }
   function renderSlotChips(){
     const wrap=document.getElementById('slotChips'),select=document.getElementById('fSlot');if(!wrap)return;
-    const f=getForm(),open=isBookingWindowOpen();
+    const f=getForm(),open=isBookingWindowOpen(),q=piState.status==='match'?piQuota(f.date):null,capped=q&&f.slots.length>=q.left;
     wrap.innerHTML=SLOT_LABELS.map((label,slot)=>{
-      const st=effectiveStatus(f.instr,f.date,slot).status,ok=st==='available'&&open,on=select.options[slot]?.selected;
-      return `<button type="button" class="slot-chip${on?' is-on':''}" data-slot="${slot}" aria-pressed="${on?'true':'false'}"${ok||on?'':' disabled'} title="${ok?'':esc(statusLabel(st)[0])}">${label.replace(' – ','–')}</button>`;
+      const st=effectiveStatus(f.instr,f.date,slot).status,on=select.options[slot]?.selected,ok=st==='available'&&open&&!(capped&&!on);
+      const why=st!=='available'||!open?statusLabel(st)[0]:capped?'PI limit reached':'';
+      return `<button type="button" class="slot-chip${on?' is-on':''}" data-slot="${slot}" aria-pressed="${on?'true':'false'}"${ok||on?'':' disabled'} title="${esc(why)}">${label.replace(' – ','–')}</button>`;
     }).join('');
     wrap.querySelectorAll('.slot-chip').forEach(chip=>chip.onclick=()=>{const o=select.options[Number(chip.dataset.slot)];o.selected=!o.selected;select.dispatchEvent(new Event('change'));});
   }
@@ -266,13 +336,20 @@
     renderSlotChips();
     const f=getForm(),records=f.slots.map(slot=>effectiveStatus(f.instr,f.date,slot)),pill=document.getElementById('statusPill'),btn=document.getElementById('btnBook');
     let html=''; if(!isBookingWindowOpen()){pill.className='status-pill status-maintenance';html='Booking window closed';}
+    else if(holidays[f.date]){pill.className='status-pill status-maintenance';html=`IISc holiday (${esc(holidays[f.date])}) — the facility is closed`;}
     else if(!f.slots.length){pill.className='status-pill status-maintenance';html='Select at least one time slot';}
+    else if(piState.status==='ambiguous'){pill.className='status-pill status-maintenance';html='Choose your PI from the list';}
+    else if(piState.status==='match'&&piQuota(f.date).dayUsed+f.slots.length>PI_DAY_MAX){const q=piQuota(f.date);pill.className='status-pill status-taken';html=q.dayFull?`${esc(piState.pi.name)} already has ${PI_DAY_MAX} slots on this day`:`${esc(piState.pi.name)} can book ${PI_DAY_MAX-q.dayUsed} more slot${PI_DAY_MAX-q.dayUsed===1?'':'s'} on this day`;}
+    else if(piState.status==='match'&&piQuota(f.date).weekUsed+f.slots.length>PI_WEEK_MAX){const q=piQuota(f.date);pill.className='status-pill status-taken';html=q.weekFull?`${esc(piState.pi.name)} already has ${PI_WEEK_MAX} slots this week`:`${esc(piState.pi.name)} can book ${PI_WEEK_MAX-q.weekUsed} more slot${PI_WEEK_MAX-q.weekUsed===1?'':'s'} this week`;}
     else if(records.every(rec=>rec.status==='available')){pill.className='status-pill status-available';html=`${f.slots.length} slot${f.slots.length===1?'':'s'} available — one registration`;}
+    else if(records.some(rec=>rec.status==='holiday')){pill.className='status-pill status-maintenance';html=`IISc holiday (${records.find(rec=>rec.status==='holiday').name}) — the facility is closed`;}
     else if(records.some(rec=>rec.status==='reserved')){pill.className='status-pill status-maintenance';html='9:30–10:30 AM is reserved for Super Users';}
     else if(records.some(rec=>rec.status==='restricted')){pill.className='status-pill status-taken';html='One or more selected slots are unavailable';}
     else if(records.some(rec=>rec.status==='maintenance'||rec.status==='administrative')){pill.className='status-pill status-maintenance';html='One or more selected slots are unavailable';}
     else {pill.className='status-pill status-taken';html='One or more selected slots are already booked';}
-    pill.innerHTML='<span>'+html+'</span>';btn.disabled=!remoteReady||!isBookingWindowOpen()||!validForm(f)||!f.slots.length||records.some(rec=>rec.status!=='available');
+    pill.innerHTML='<span>'+html+'</span>';const piBlocked=piState.status==='ambiguous'||piState.status==='loading'||(piState.status==='match'&&f.slots.length>piQuota(f.date).left);
+    renderPiMatch();
+    btn.disabled=!remoteReady||!isBookingWindowOpen()||!validForm(f)||!f.slots.length||piBlocked||records.some(rec=>rec.status!=='available');
   }
   function renderIdentity(){const p=profile();['fUserName','fPiName','fPhone','fEmail','fInstitution','fSpecimen'].forEach(id=>{const el=document.getElementById(id);if(!el.value&&p[id])el.value=p[id];});const name=document.getElementById('fUserName').value.trim()||'Guest';document.getElementById('userNameChip').textContent=name;document.getElementById('userAvatar').textContent=(name.match(/\b\w/g)||['?']).slice(0,2).join('').toUpperCase();}
   function renderBookings(){
@@ -380,7 +457,7 @@
       renderOperator();
     }
   }
-  async function saveOperatorBooking(){const date=document.getElementById('opDateEdit').value,slot=Number(document.getElementById('opSlotEdit').value),instr=document.getElementById('opInstrumentEdit').value;if(!remoteUser){showToast('Remote session is not ready. Please reload and try again.');return;}if(!date||!document.getElementById('opUser').value.trim()||!document.getElementById('opPi').value.trim()||!document.getElementById('opEmail').value.trim()){showToast('Complete the booking details first.');return;}const key=keyFor(instr,date,slot),existing=state[key];if(existing?.status==='booked'&&key!==editingOperatorBookingKey){showToast('That instrument slot is already booked.');return;}const old=editingOperatorBookingKey?state[editingOperatorBookingKey]:null;const booking={id:old?.remoteId,user_id:remoteUser.id,instrument_id:instr,session_date:date,slot,user_name:document.getElementById('opUser').value.trim(),pi_name:document.getElementById('opPi').value.trim(),email:document.getElementById('opEmail').value.trim(),phone:old?.phone||'',institution:old?.institution||'',specimen:old?.specimen||'Operator booking'};try{const remote=await adminBookingRequest('upsert',booking);state[key]={status:'booked',id:remote.booking_code||old?.id||'Admin booking',remoteId:remote.id,user:booking.user_name,pi:booking.pi_name,email:booking.email,phone:booking.phone,institution:booking.institution,specimen:booking.specimen,instr,date,slot,form:'Operator entry',createdAt:remote.created_at||new Date().toISOString()};if(editingOperatorBookingKey&&editingOperatorBookingKey!==key)delete state[editingOperatorBookingKey];save();document.getElementById('operatorBookingModal').classList.remove('show');renderAll();renderBookings();renderOperator();showToast('Admin booking saved remotely.');}catch(error){console.error(error);showToast('Remote booking could not be saved.');}}
+  async function saveOperatorBooking(){const date=document.getElementById('opDateEdit').value,slot=Number(document.getElementById('opSlotEdit').value),instr=document.getElementById('opInstrumentEdit').value;if(!remoteUser){showToast('Remote session is not ready. Please reload and try again.');return;}if(!date||!document.getElementById('opUser').value.trim()||!document.getElementById('opPi').value.trim()||!document.getElementById('opEmail').value.trim()){showToast('Complete the booking details first.');return;}const key=keyFor(instr,date,slot),existing=state[key];if(existing?.status==='booked'&&key!==editingOperatorBookingKey){showToast('That instrument slot is already booked.');return;}const old=editingOperatorBookingKey?state[editingOperatorBookingKey]:null;const booking={id:old?.remoteId,user_id:remoteUser.id,instrument_id:instr,session_date:date,slot,user_name:document.getElementById('opUser').value.trim(),pi_name:document.getElementById('opPi').value.trim(),email:document.getElementById('opEmail').value.trim(),phone:old?.phone||'',institution:old?.institution||'',specimen:old?.specimen||'Operator booking'};try{const remote=await adminBookingRequest('upsert',booking);state[key]={status:'booked',id:remote.booking_code||old?.id||'Admin booking',remoteId:remote.id,user:booking.user_name,pi:booking.pi_name,email:booking.email,phone:booking.phone,institution:booking.institution,specimen:booking.specimen,instr,date,slot,form:'Operator entry',createdAt:remote.created_at||new Date().toISOString()};if(editingOperatorBookingKey&&editingOperatorBookingKey!==key)delete state[editingOperatorBookingKey];save();document.getElementById('operatorBookingModal').classList.remove('show');renderAll();renderBookings();renderOperator();showToast('Admin booking saved remotely.');}catch(error){console.error(error);showToast(cleanDbError(error.message)||'Remote booking could not be saved.');}}
   async function deleteOperatorBooking(key){const r=state[key];if(!r||!confirm(`Delete booking ${r.id}?`))return;try{if(r.remoteId)await adminBookingRequest('delete',{id:r.remoteId});delete state[key];save();renderAll();renderBookings();renderOperator();showToast('Booking deleted.');}catch(error){console.error(error);showToast('Remote booking could not be deleted.');}}
   function renderOptions(){
     const instrumentSelect=document.getElementById('fInstrument');
@@ -402,7 +479,7 @@
   function showToast(msg){const t=document.getElementById('toast');document.getElementById('toastMsg').textContent=msg;t.classList.add('show');clearTimeout(t._timer);t._timer=setTimeout(()=>t.classList.remove('show'),3200);}
   function switchView(view){
     if(view==='operator'&&!ensureAdminAccess())return;
-    const views=['dashboard','bookings','operator','instruments','forms','guidelines','support'];views.forEach(v=>{const el=document.getElementById(v+'View');if(el)el.style.display=v===view?'block':'none';});document.querySelectorAll('.nav-item').forEach(i=>i.classList.remove('active'));const target=document.querySelector(`.nav-item[data-view="${view}"]`);if(target)target.classList.add('active');if(view==='bookings')renderBookings();if(view==='operator')renderOperator();window.scrollTo({top:0,behavior:'smooth'});
+    const views=['dashboard','bookings','operator','instruments','forms','guidelines','support'];views.forEach(v=>{const el=document.getElementById(v+'View');if(el)el.style.display=v===view?'block':'none';});document.querySelectorAll('.nav-item').forEach(i=>i.classList.remove('active'));const target=document.querySelector(`.nav-item[data-view="${view}"]`);if(target)target.classList.add('active');if(view==='bookings')renderBookings();if(view==='operator'){renderOperator();loadPiAdmin();renderHolidayAdmin();}window.scrollTo({top:0,behavior:'smooth'});
   }
   function ensureAdminAccess(){
     if(sessionStorage.getItem('em_operator_unlocked')==='true')return true;
@@ -437,7 +514,8 @@
   ['fUserName','fPiName','fPhone','fEmail','fInstitution','fSpecimen'].forEach(id=>document.getElementById(id).addEventListener('input',()=>{const f=getForm();saveProfile({fUserName:f.user,fPiName:f.pi,fPhone:f.phone,fEmail:f.email,fInstitution:f.institution,fSpecimen:f.specimen});renderStatus();renderSchedule();}));
   document.getElementById('fInstrument').addEventListener('change',()=>{renderStatus();renderSchedule();});
   document.getElementById('fSlot').addEventListener('change',()=>{renderStatus();renderSchedule();});
-  document.getElementById('fDate').addEventListener('change',()=>{const idx=Math.round((new Date(selectedDate())-weekStart)/86400000);if(idx>=0&&idx<WEEK_LEN)selectedDayIdx=idx;renderStatus();renderSchedule();});
+  document.getElementById('fPiName').addEventListener('input',schedulePiLookup);
+  document.getElementById('fDate').addEventListener('change',()=>{const idx=Math.round((new Date(selectedDate()+'T00:00:00')-weekStart)/86400000);if(idx>=0&&idx<WEEK_LEN)selectedDayIdx=idx;[...document.getElementById('fSlot').options].forEach(o=>o.selected=false);renderAll();});
 
   document.getElementById('btnBook').onclick=async()=>{
     const f=getForm();if(!isBookingWindowOpen()){showToast('Booking is open from Friday noon to Sunday 11 AM.');return;}if(!validForm(f)||!f.slots.length){showToast('Please select at least one time slot and complete all required booking details.');return;}if(!fileInput.files?.length){pendingBooking=f;showAttachModal();return;}
@@ -445,13 +523,14 @@
     const file=fileInput.files[0];
     const btn=document.getElementById('btnBook');btn.disabled=true;btn.textContent='Saving booking…';
     try{
-      const remote=await createRemoteBookings(f,file),bookings=f.slots.map(slot=>{const result=remote.find(row=>row.slot===slot),id=result?.id||'EM-'+new Date().getFullYear()+'-'+Math.random().toString(36).slice(2,8).toUpperCase();state[keyFor(f.instr,f.date,slot)]={status:'booked',id,user:f.user,pi:f.pi,phone:f.phone,email:f.email,institution:f.institution,specimen:f.specimen,instr:f.instr,date:f.date,slot,form:file.name,formPath:result?.formPath,createdAt:result?.createdAt||new Date().toISOString(),remoteId:result?.remoteId};save();return {...f,id,slot};});resetAttachment();pendingBooking=null;renderAll();renderBookings();renderOperator();showConfirmation(bookings);
+      const remote=await createRemoteBookings(f,file),bookings=f.slots.map(slot=>{const result=remote.find(row=>row.slot===slot),id=result?.id||'EM-'+new Date().getFullYear()+'-'+Math.random().toString(36).slice(2,8).toUpperCase();state[keyFor(f.instr,f.date,slot)]={status:'booked',id,user:f.user,pi:f.pi,phone:f.phone,email:f.email,institution:f.institution,specimen:f.specimen,instr:f.instr,date:f.date,slot,form:file.name,formPath:result?.formPath,createdAt:result?.createdAt||new Date().toISOString(),remoteId:result?.remoteId};save();return {...f,id,slot};});resetAttachment();pendingBooking=null;renderAll();renderBookings();renderOperator();showConfirmation(bookings);refreshPiUsage();loadPiDirectory();
     }catch(error){
       console.error('Supabase booking failed',error);
       if(!navigator.onLine||error instanceof TypeError||Number(error?.status)>=500){
         scheduleRemoteRetry(error);
       }
-      showToast(error.message||'Booking could not be saved. Please try again.');
+      showToast(cleanDbError(error.message).replace(/^HOLIDAY:\s*/,'')||'Booking could not be saved. Please try again.');
+      if(/^PI_/.test(error?.message||''))lookupPi();
     }
     finally{btn.textContent='Confirm Booking';renderStatus();}
   };
@@ -490,6 +569,75 @@
   document.getElementById('modalOk').onclick=()=>{hideAttachModal();fileInput.click();};
   document.getElementById('modalGoForms').onclick=()=>{hideAttachModal();switchView('forms');};
   attachModal.onclick=e=>{if(e.target===attachModal)hideAttachModal();};
+
+  // Operator: PI directory
+  let piAdminList=[],editingPiId=null;
+  async function loadPiAdmin(){
+    const wrap=document.getElementById('piDirectoryList');if(!wrap)return;
+    try{
+      const {pis}=await adminBookingRequest('pi-list');
+      piAdminList=pis||[];
+      const order=[...piAdminList].sort((a,b)=>(a.status==='new'?0:1)-(b.status==='new'?0:1)||a.name.localeCompare(b.name));
+      wrap.innerHTML=order.length?order.map(pi=>`<div class="pi-row${pi.status==='new'?' is-new':''}"><div><b>${esc(pi.name)}</b>${pi.status==='new'?' <span class="pi-new">New</span>':''}<div class="pi-aliases">${pi.aliases.length?'Also: '+pi.aliases.map(esc).join(', '):''}</div></div><span class="pi-count">${pi.bookings} booking${pi.bookings===1?'':'s'}</span><button class="btn btn-secondary pi-edit" type="button" data-id="${esc(pi.id)}">${pi.status==='new'?'Review':'Edit'}</button></div>`).join(''):'<div class="empty-state">No PIs yet.</div>';
+      wrap.querySelectorAll('.pi-edit').forEach(b=>b.onclick=()=>openPiModal(b.dataset.id));
+    }catch(error){
+      console.error('PI directory failed',error);
+      wrap.innerHTML=`<div class="empty-state">${esc(error.message||'Could not load the PI directory.')}</div>`;
+    }
+  }
+  function openPiModal(id=null){
+    editingPiId=id;const pi=piAdminList.find(p=>p.id===id);
+    document.getElementById('piModalTitle').textContent=pi?(pi.status==='new'?'Review new PI':'Edit PI'):'Add PI';
+    document.getElementById('piNameEdit').value=pi?.name||'';
+    document.getElementById('piAliasesEdit').value=(pi?.aliases||[]).join(', ');
+    document.getElementById('piMergeField').hidden=!pi;
+    document.getElementById('piMergeTarget').innerHTML=piAdminList.filter(p=>p.id!==id).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+    document.getElementById('piModal').classList.add('show');
+    document.getElementById('piNameEdit').focus();
+  }
+  async function afterPiChange(message){
+    document.getElementById('piModal').classList.remove('show');
+    await loadPiAdmin();loadPiDirectory();lookupPi();
+    refreshRemoteBookings().catch(error=>console.error(error));
+    showToast(message);
+  }
+  document.getElementById('btnAddPi').onclick=()=>openPiModal();
+  document.getElementById('piCancel').onclick=()=>document.getElementById('piModal').classList.remove('show');
+  document.getElementById('piSave').onclick=async()=>{
+    const name=document.getElementById('piNameEdit').value.trim();
+    if(!name){showToast('Enter the PI name.');return;}
+    const aliases=document.getElementById('piAliasesEdit').value.split(/[,\n]/).map(a=>a.trim()).filter(Boolean);
+    try{await adminBookingRequest('pi-save',{id:editingPiId,name,aliases});await afterPiChange('PI saved.');}
+    catch(error){console.error(error);showToast(error.message||'PI could not be saved.');}
+  };
+  document.getElementById('piMergeBtn').onclick=async()=>{
+    const from=piAdminList.find(p=>p.id===editingPiId),to=piAdminList.find(p=>p.id===document.getElementById('piMergeTarget').value);
+    if(!from||!to)return;
+    if(!confirm(`Merge “${from.name}” into “${to.name}”? Its ${from.bookings} booking(s) and spellings move to ${to.name}.`))return;
+    try{await adminBookingRequest('pi-merge',{from:from.id,to:to.id});await afterPiChange(`Merged into ${to.name}.`);}
+    catch(error){console.error(error);showToast(error.message||'PIs could not be merged.');}
+  };
+
+  // Operator: holidays
+  async function renderHolidayAdmin(){
+    const wrap=document.getElementById('holidayList');if(!wrap)return;
+    const today=iso(new Date()),upcoming=Object.entries(holidays).filter(([d])=>d>=today).sort();
+    wrap.innerHTML=upcoming.length?upcoming.map(([d,name])=>`<div class="holiday-row"><span class="mono">${esc(new Date(d+'T00:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'numeric'}))}</span><span>${esc(name)}</span><button class="btn btn-secondary holiday-remove" type="button" data-date="${esc(d)}">Remove</button></div>`).join(''):'<div class="empty-state">No upcoming holidays loaded. Add them here or run supabase/seed_holidays.sql.</div>';
+    wrap.querySelectorAll('.holiday-remove').forEach(b=>b.onclick=()=>setHoliday(b.dataset.date,null,false));
+  }
+  async function setHoliday(date,name,enabled){
+    if(!enabled&&!confirm(`Remove the holiday on ${date}? Students will be able to book that day.`))return;
+    try{
+      const result=await adminBookingRequest('holiday-set',{holiday_date:date,name,enabled});
+      await refreshRemoteBookings();renderHolidayAdmin();
+      showToast(enabled?(result.existingBookings?`Holiday added. ${result.existingBookings} existing booking(s) on that day were kept — contact those users.`:'Holiday added; bookings are blocked that day.'):'Holiday removed.');
+    }catch(error){console.error(error);showToast(error.message||'Holiday could not be saved.');}
+  }
+  document.getElementById('btnAddHoliday').onclick=()=>{
+    const date=document.getElementById('holidayDate').value,name=document.getElementById('holidayName').value.trim();
+    if(!date||!name){showToast('Enter the holiday date and name.');return;}
+    setHoliday(date,name,true).then(()=>{document.getElementById('holidayName').value='';});
+  };
 
   // Operator controls
   document.getElementById('btnMaintenance').onclick=async()=>{

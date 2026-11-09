@@ -277,3 +277,254 @@ create policy "Users read their own signed forms"
     bucket_id = 'signed-forms'
     and ((storage.foldername(name))[1] = auth.uid()::text or public.is_operator())
   );
+
+-- ---------------------------------------------------------------------------
+-- PI directory and per-PI booking limits
+-- A PI may hold at most 3 confirmed slots per day and 5 per Monday–Sunday
+-- week, across all students and instruments. PI names are matched loosely
+-- ("somnath", "Dr. Somnath", "Prof S. Dutta" -> Prof. Somnath Dutta); an
+-- unmatched name is added as a 'new' PI for the operator to review.
+-- Operator (service-role / operator profile) bookings are exempt from limits.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.pis (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  status text not null default 'active' check (status in ('active', 'new')),
+  created_at timestamptz not null default now()
+);
+
+-- Extra recognised spellings (stored normalised, see pi_key), e.g. 'sd'.
+create table if not exists public.pi_aliases (
+  alias text primary key,
+  pi_id uuid not null references public.pis(id) on delete cascade
+);
+
+alter table public.bookings add column if not exists pi_id uuid references public.pis(id);
+create index if not exists bookings_pi_day
+  on public.bookings (pi_id, session_date)
+  where status = 'confirmed';
+
+-- Lower-case word tokens with titles and filler words removed.
+create or replace function public.pi_tokens(p_name text)
+returns text[]
+language sql
+immutable
+as $$
+  select coalesce(array_agg(tok order by ord), '{}')
+  from unnest(regexp_split_to_array(trim(regexp_replace(lower(coalesce(p_name, '')), '[^a-z]+', ' ', 'g')), ' '))
+       with ordinality as t(tok, ord)
+  where tok <> ''
+    and tok not in ('prof', 'professor', 'dr', 'doctor', 'mr', 'mrs', 'ms', 'miss', 'sir', 'madam', 'mam', 'maam', 'lab', 'group', 'iisc');
+$$;
+
+create or replace function public.pi_key(p_name text)
+returns text
+language sql
+immutable
+as $$ select array_to_string(public.pi_tokens(p_name), ' '); $$;
+
+-- True when every query token matches a different word of the PI's name
+-- (any order); a one-letter token matches an initial. At least one full
+-- word must match, so bare initials ("SD") only resolve through an alias.
+create or replace function public.pi_name_matches(q text[], c text[])
+returns boolean
+language plpgsql
+immutable
+as $$
+declare
+  nq int := coalesce(array_length(q, 1), 0);
+  nc int := coalesce(array_length(c, 1), 0);
+  used boolean[] := array_fill(false, array[greatest(nc, 1)]);
+  full_word boolean := false;
+  hit boolean;
+begin
+  if nq = 0 or nc = 0 then return false; end if;
+  -- Full words first, so an initial cannot take a word a full token needs.
+  for pass in 1..2 loop
+    for i in 1..nq loop
+      continue when (pass = 1) <> (length(q[i]) > 1);
+      hit := false;
+      for j in 1..nc loop
+        if not used[j] and (q[i] = c[j] or (length(q[i]) = 1 and left(c[j], 1) = q[i])) then
+          used[j] := true;
+          hit := true;
+          exit;
+        end if;
+      end loop;
+      if not hit then return false; end if;
+      if length(q[i]) > 1 then full_word := true; end if;
+    end loop;
+  end loop;
+  return full_word;
+end;
+$$;
+
+-- Exact matches (alias or full name) win; otherwise loose matches.
+create or replace function public.resolve_pi(p_name text)
+returns table (id uuid, name text, status text)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  k text := public.pi_key(p_name);
+begin
+  if k = '' then return; end if;
+  return query
+    select distinct p.id, p.name, p.status from public.pis p
+    left join public.pi_aliases a on a.pi_id = p.id
+    where a.alias = k or public.pi_key(p.name) = k;
+  if found then return; end if;
+  return query
+    select p.id, p.name, p.status from public.pis p
+    where public.pi_name_matches(public.pi_tokens(p_name), public.pi_tokens(p.name))
+    order by p.name;
+end;
+$$;
+
+-- Slots a PI already holds per day in a date range (no personal details).
+create or replace function public.pi_usage(p_pi uuid, p_from date, p_to date)
+returns table (session_date date, used int)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select b.session_date, count(*)::int
+  from public.bookings b
+  where b.pi_id = p_pi and b.status = 'confirmed' and b.session_date between p_from and p_to
+  group by b.session_date;
+$$;
+
+create or replace function public.assign_pi_and_enforce_limits()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_pi uuid;
+  v_matches int;
+  v_week date;
+  v_day_used int;
+  v_week_used int;
+  v_exempt boolean := coalesce(auth.role(), '') = 'service_role' or public.is_operator();
+begin
+  -- Resolve the PI when none is given, or when the typed name changed.
+  if new.pi_id is null
+     or (tg_op = 'UPDATE' and new.pi_name is distinct from old.pi_name and new.pi_id is not distinct from old.pi_id) then
+    select count(*), min(r.id::text)::uuid into v_matches, v_pi from public.resolve_pi(new.pi_name) r;
+    if v_matches > 1 then
+      raise exception 'PI_AMBIGUOUS: "%" matches more than one PI. Please choose your PI from the list.', new.pi_name
+        using errcode = '23514';
+    elsif v_matches = 0 then
+      if public.pi_key(new.pi_name) = '' then
+        raise exception 'PI_REQUIRED: Please enter your PI''s name.' using errcode = '23514';
+      end if;
+      insert into public.pis (name, status)
+      values (regexp_replace(trim(new.pi_name), '\s+', ' ', 'g'), 'new')
+      returning id into v_pi;
+    end if;
+    new.pi_id := v_pi;
+  end if;
+
+  -- Store the directory spelling so every booking for a PI reads the same.
+  select p.name into new.pi_name from public.pis p where p.id = new.pi_id;
+  if new.pi_name is null then
+    raise exception 'PI_UNKNOWN: The selected PI no longer exists.' using errcode = '23514';
+  end if;
+
+  if new.status = 'confirmed' and not v_exempt
+     and (tg_op = 'INSERT'
+          or old.status is distinct from new.status
+          or old.session_date is distinct from new.session_date
+          or old.pi_id is distinct from new.pi_id) then
+    v_week := date_trunc('week', new.session_date)::date;
+    -- Serialise concurrent bookings for the same PI and week.
+    perform pg_advisory_xact_lock(hashtextextended('pi:' || new.pi_id::text || ':' || v_week::text, 0));
+    select count(*) filter (where b.session_date = new.session_date), count(*)
+      into v_day_used, v_week_used
+      from public.bookings b
+      where b.pi_id = new.pi_id and b.status = 'confirmed'
+        and b.session_date between v_week and v_week + 6
+        and b.id <> new.id;
+    if v_day_used >= 3 then
+      raise exception 'PI_DAY_LIMIT: % already has 3 slots on %, the daily maximum per PI.',
+        new.pi_name, to_char(new.session_date, 'FMDay DD Mon') using errcode = '23514';
+    end if;
+    if v_week_used >= 5 then
+      raise exception 'PI_WEEK_LIMIT: % already has 5 slots this week, the weekly maximum per PI.',
+        new.pi_name using errcode = '23514';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists bookings_assign_pi on public.bookings;
+create trigger bookings_assign_pi
+  before insert or update of pi_name, pi_id, session_date, slot, status on public.bookings
+  for each row execute function public.assign_pi_and_enforce_limits();
+
+alter table public.pis enable row level security;
+alter table public.pi_aliases enable row level security;
+
+drop policy if exists "Authenticated users can view PIs" on public.pis;
+create policy "Authenticated users can view PIs"
+  on public.pis for select
+  to authenticated
+  using (true);
+
+revoke all on function public.resolve_pi(text) from public, anon;
+grant execute on function public.resolve_pi(text) to authenticated;
+revoke all on function public.pi_usage(uuid, date, date) from public, anon;
+grant execute on function public.pi_usage(uuid, date, date) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- IISc holidays: no student bookings on these dates. IISc publishes the list
+-- once a year as a PDF (Public Relations Office); load it with
+-- supabase/seed_holidays.sql or from the Operator Console.
+-- Operator (service-role / operator profile) bookings are exempt.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.holidays (
+  holiday_date date primary key,
+  name text not null,
+  source text not null default 'operator',
+  created_at timestamptz not null default now()
+);
+
+alter table public.holidays enable row level security;
+drop policy if exists "Authenticated users can view holidays" on public.holidays;
+create policy "Authenticated users can view holidays"
+  on public.holidays for select
+  to authenticated
+  using (true);
+
+create or replace function public.prevent_booking_on_holiday()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_name text;
+begin
+  if new.status = 'confirmed'
+     and not (coalesce(auth.role(), '') = 'service_role' or public.is_operator()) then
+    select h.name into v_name from public.holidays h where h.holiday_date = new.session_date;
+    if v_name is not null then
+      raise exception 'HOLIDAY: % is an IISc holiday (%). The facility is closed that day.',
+        to_char(new.session_date, 'FMDay DD Mon'), v_name using errcode = '23514';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists bookings_block_holidays on public.bookings;
+create trigger bookings_block_holidays
+  before insert or update of session_date, status on public.bookings
+  for each row execute function public.prevent_booking_on_holiday();

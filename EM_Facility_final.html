@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
 <link rel="icon" type="image/png" href="assets/iisc-emblem.png">
-<link rel="stylesheet" href="styles.css?v=10">
+<link rel="stylesheet" href="styles.css?v=12">
 </head>
 <body>
 
@@ -88,6 +88,7 @@
         </div>
 
         <div class="day-tabs" id="dayTabs"></div>
+        <div class="holiday-banner" id="holidayBanner" hidden></div>
 
         <table class="sched-table">
           <thead>
@@ -107,6 +108,7 @@
           <div class="legend-item"><span class="legend-dot" style="background:#efb4ae"></span>Unavailable — operator already booked</div>
           <div class="legend-item"><span class="legend-dot" style="background:#d7c2f5"></span>Reserved for Super Users</div>
           <div class="legend-item"><span class="legend-dot" style="background:#dfd0ef"></span>Administrative break</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#ffd9a8"></span>IISc holiday</div>
         </div>
       </div>
       <div class="panel links-panel">
@@ -131,7 +133,9 @@
         </div>
         <div class="field">
           <label for="fPiName">PI Name <span class="required">*</span></label>
-          <input type="text" id="fPiName" placeholder="e.g. Prof. Somnath Dutta" autocomplete="off">
+          <input type="text" id="fPiName" placeholder="e.g. Prof. Somnath Dutta" autocomplete="off" list="piOptions" aria-describedby="piMatch">
+          <datalist id="piOptions"></datalist>
+          <div class="pi-match" id="piMatch" aria-live="polite"></div>
         </div>
         <div class="field">
           <label for="fPhone">Phone Number <span class="required">*</span></label>
@@ -190,6 +194,8 @@
       <div class="panel forms-hero"><h2>Operator Console</h2><p>Facility-side controls for the single operator managing both instruments. Every action here is checked by the server against the operator password.</p></div>
       <div class="operator-grid">
         <div class="panel operator-card"><h3>Slot Controls</h3><p>Block a date and time slot for maintenance or facility reasons. A maintenance block prevents bookings on every instrument for that slot.</p><div class="field"><label for="opDate">Date</label><input type="date" id="opDate"></div><div class="field"><label for="opSlot">Slot</label><div class="select-wrap"><select id="opSlot"></select></div></div><div class="field"><label for="opInstrument">Instrument</label><div class="select-wrap"><select id="opInstrument"></select></div></div><button class="btn btn-secondary" id="btnMaintenance">Toggle Maintenance</button></div>
+        <div class="panel operator-card holiday-card"><h3>IISc Holidays</h3><p>Students cannot book on these dates. The 2026 list comes from the IISc Public Relations Office; add next year’s list here when it is published, or any extra closure.</p><div class="holiday-add"><div class="field"><label for="holidayDate">Date</label><input type="date" id="holidayDate"></div><div class="field"><label for="holidayName">Holiday</label><input type="text" id="holidayName" placeholder="e.g. Diwali (Deepavali)"></div><button class="btn btn-primary" id="btnAddHoliday" type="button">Add holiday</button></div><div id="holidayList" class="holiday-list"></div></div>
+        <div class="panel operator-card pi-directory"><div class="pi-directory-head"><div><h3>PI Directory</h3><p>Each PI can hold at most <b>3 slots per day</b> and <b>5 per week</b> across all students and instruments (operator-added bookings are exempt). Names students type are matched to this list; unmatched names are added and marked <b>New</b>. Add spellings or merge duplicates so every variant counts towards the same PI.</p></div><button class="btn btn-primary" id="btnAddPi" type="button">Add PI</button></div><div id="piDirectoryList" class="pi-directory-list"><div class="empty-state">Loading PIs…</div></div></div>
         <div class="panel operator-card"><h3>Current Bookings</h3><button class="btn btn-primary" id="btnAddOperatorBooking">Add Booking</button><div id="operatorBookings" class="operator-bookings"></div><button class="btn btn-secondary" id="btnExport">Export Booking List (CSV)</button><button class="btn btn-secondary" id="btnBulkExportForms">Download Booking Forms (ZIP)</button><p class="operator-export-note">Bulk download is available after the booking window closes Sunday at 11:00 AM.</p></div>
       </div>
     </div>
@@ -336,6 +342,15 @@
     <div class="modal-actions"><button class="btn btn-secondary" id="adminCancel">Cancel</button><button class="btn btn-primary" id="adminUnlock">Unlock</button></div>
   </div>
 </div>
+<div class="modal-overlay" id="piModal">
+  <div class="modal-box">
+    <h3 id="piModalTitle">Edit PI</h3>
+    <div class="field"><label for="piNameEdit">PI name (as it should appear)</label><input id="piNameEdit" type="text" placeholder="e.g. Prof. Somnath Dutta"></div>
+    <div class="field"><label for="piAliasesEdit">Other spellings</label><textarea id="piAliasesEdit" rows="3" placeholder="One per line or comma-separated, e.g. SD"></textarea><div class="field-hint">Partial names, titles and initials (somnath, Dr. Somnath, S. Dutta) already match automatically. Add only nicknames or initials such as “SD”.</div></div>
+    <div class="field" id="piMergeField"><label for="piMergeTarget">Merge into another PI</label><div class="pi-merge-row"><div class="select-wrap"><select id="piMergeTarget"></select></div><button class="btn btn-secondary" id="piMergeBtn" type="button">Merge</button></div><div class="field-hint">Moves this PI’s bookings and spellings to the chosen PI, then removes this entry.</div></div>
+    <div class="modal-actions"><button class="btn btn-secondary" id="piCancel" type="button">Cancel</button><button class="btn btn-primary" id="piSave" type="button">Save PI</button></div>
+  </div>
+</div>
 <div class="modal-overlay" id="operatorBookingModal">
     <div class="modal-box">
       <h3 id="operatorBookingTitle">Add Booking</h3>
@@ -351,4 +366,4 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script src="script.js?v=14"></script>
+<script src="script.js?v=16"></script>
